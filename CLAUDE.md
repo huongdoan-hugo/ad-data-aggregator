@@ -29,7 +29,7 @@ Aggregator. Chấm theo: đúng kết quả, code sạch, xử lý lỗi, hiệu
 6. Môi trường là Windows PowerShell: dùng cú pháp PowerShell, đường dẫn `\`.
 7. Diff nhỏ, không refactor ngoài phạm vi yêu cầu.
 8. Hỏi người dùng trước khi đổi bất kỳ quyết định thiết kế nào bên dưới.
-9. Không ghi thêm prompt vào `PROMPTS.md` (người dùng đã dừng việc này); giữ nguyên các prompt đã có.
+9. Không tự ghi prompt vào `PROMPTS.md`: hook `.claude/hooks/log_prompt.py` đã tự ghi mỗi prompt.
 
 ## Quyết định thiết kế đã duyệt
 - 4 worker cố định (process), WORKERS*4 khoảng byte; khoảng sở hữu mọi dòng BẮT ĐẦU trong nó;
