@@ -1,187 +1,175 @@
 # Ad Performance Aggregator
 
-Solution to the Flinters Vietnam challenge **FV-SEC001**. A command-line tool reads a ~1GB CSV of advertising records (`ad_data.csv`, 26,843,544 rows, 50 campaigns) in a single streaming pass. It aggregates the records by `campaign_id` and writes two rankings:
+Lời giải cho bài thử thách FV-SEC001 *Ad Performance Aggregator*: đọc tệp `ad_data.csv` (~1 GB,
+26.843.544 dòng, 50 campaign), gộp theo `campaign_id` và ghi ra hai tệp:
 
-- `top10_ctr.csv`: the 10 campaigns with the highest CTR (`total_clicks / total_impressions`)
-- `top10_cpa.csv`: the 10 campaigns with the lowest CPA (`total_spend / total_conversions`), excluding campaigns with zero conversions
+- `top10_ctr.csv`: 10 campaign có CTR cao nhất (CTR = clicks / impressions);
+- `top10_cpa.csv`: 10 campaign có CPA thấp nhất (CPA = spend / conversions).
 
-Both files have the columns `campaign_id,total_impressions,total_clicks,total_spend,total_conversions,CTR,CPA`. The submitted results are in [`results/`](results/).
+Cả hai tệp có các cột `campaign_id,total_impressions,total_clicks,total_spend,total_conversions,CTR,CPA`.
+`total_spend` và `CPA` lấy 2 chữ số thập phân, `CTR` lấy 4 chữ số, đúng như bảng mẫu của đề.
 
-## Setup
+## 1. Hướng dẫn cài đặt
 
-- Python 3.14 (developed and tested on 3.14.10, Windows 10).
-- `aggregator.py` uses the standard library only, so nothing needs to be installed to run it.
-- Development only: `pytest` for the tests, `duckdb` for the cross-check script.
+Yêu cầu: **Python 3.14** trên Windows 10 (phiên bản dùng để phát triển và đo đạc).
+Chạy chương trình chính **không cần cài thêm gói nào** vì chỉ dùng thư viện chuẩn.
 
-```bash
-pip install pytest duckdb
+```powershell
+git clone https://github.com/huongdoan-hugo/ad-data-aggregator.git
+cd ad-data-aggregator
+
+# Tùy chọn: môi trường ảo, chỉ cần khi chạy test và script kiểm chứng
+python -m venv .venv
+.venv\Scripts\Activate.ps1
+pip install -r requirements-dev.txt      # pytest, duckdb
 ```
 
-- Data: unzip `ad_data.csv.zip` into `data/` so that the input is `data/ad_data.csv`. `data/` is git-ignored.
+Đặt dữ liệu vào `data\ad_data.csv` (thư mục `data\` không được đưa lên git). Có thể dùng trực tiếp
+tệp `.zip` gốc mà không cần giải nén.
 
-## How to run
+## 2. Cách chạy chương trình
 
-```bash
-python aggregator.py --input data/ad_data.csv --output results/
+```powershell
+python aggregator.py --input data\ad_data.csv --output results
+python aggregator.py --input ad_data.csv.zip --output results
 ```
 
-- `--input`: path to the source CSV.
-- `--output`: directory for `top10_ctr.csv` and `top10_cpa.csv`. It is created if it does not exist, and existing files are overwritten.
-- stdout: `Campaigns: <n>, skipped rows: <n>`.
-- stderr: `Error: ...` on failure.
-- Exit codes:
-  - `0` on success;
-  - `1` when the input is missing, unreadable, empty, has an unexpected header or cannot be parsed as CSV, or when the results cannot be written;
-  - `2` for invalid command-line arguments (argparse).
+| Tham số | Ý nghĩa |
+|---|---|
+| `--input` | Tệp `.csv`, hoặc `.zip` chứa đúng một tệp `.csv`. Loại tệp được nhận diện theo nội dung, không theo đuôi. Tệp zip được giải nén vào thư mục tạm (cần dung lượng trống bằng cỡ tệp CSV) và xóa sau khi chạy xong. |
+| `--output` | Thư mục ghi hai tệp kết quả. Tự tạo nếu chưa có (kể cả thư mục cha); tệp kết quả cũ bị ghi đè. |
 
-## How to run the tests
+Số tiến trình song song cố định là 4 (xem mục Quyết định thiết kế). Khi thành công, chương trình in:
 
-```bash
+```
+Read 26843544 data rows, 50 campaigns.
+Skipped 0 bad rows {}.
+Wrote top10_ctr.csv and top10_cpa.csv to results
+```
+
+Mã thoát: `0` thành công; `1` đầu vào không xử lý được (không tìm thấy, rỗng, zip hỏng, header sai,
+dòng dài hơn 64 KiB) hoặc không ghi được kết quả; `2` tham số không hợp lệ.
+Lỗi luôn được in ra stderr dưới dạng một dòng `error: ...`, không bao giờ là traceback.
+
+### Chạy bằng Docker
+
+```powershell
+docker build -t ad-aggregator .
+docker run --rm -v "${PWD}\data:/data" -v "${PWD}\results:/results" ad-aggregator
+```
+
+`.dockerignore` chỉ cho phép `aggregator.py` vào build context nên thư mục `data\` 1 GB không bị gửi
+cho Docker daemon. Image **chưa được build và chạy thử** vì máy phát triển không cài Docker.
+
+### Các script đi kèm
+
+| Script | Công dụng |
+|---|---|
+| `scripts\verify_with_duckdb.py` | Tính lại tổng từ `data\ad_data.csv` bằng DuckDB (cộng DECIMAL chính xác), xếp hạng bằng `Fraction`, rồi so với `results\` (thứ tự, các cột số nguyên, `total_spend`, `CTR`, `CPA`). In `MATCH` (thoát 0) hoặc từng chỗ lệch (thoát 1). Độc lập với `aggregator.py`. |
+| `scripts\benchmark.py` | Chạy `aggregator.py` trong tiến trình riêng, ghi thời gian, bộ nhớ đỉnh, cấu hình máy và kết quả chạy vào `benchmark.log`. Chỉ chạy trên Windows. |
+| `scripts\inspect_data.py` | Đọc streaming một lượt và in tóm tắt chất lượng dữ liệu (vài dòng đầu, số dòng, số campaign, dòng lỗi, khoảng giá trị, dấu nháy). |
+
+### Chạy kiểm thử
+
+```powershell
 python -m pytest
 ```
 
-62 tests, all passing. They cover:
+100 test, khoảng 1.5 giây. Bao gồm: phân tích dòng và từng loại dòng lỗi, cộng spend chính xác,
+CTR/CPA và giá trị không xác định, xếp hạng (giảm/tăng, tối đa 10, tie-break, hai giá trị mà `float`
+không phân biệt được), làm tròn half-up, định dạng đầu ra, header/BOM/CRLF, trường có dấu nháy, đầu vào
+zip, lỗi đầu vào, và song song: các khoảng byte phủ mọi dòng đúng một lần với nhiều số khoảng khác nhau
+(LF, CRLF, thiếu newline cuối, chỉ có header, có dòng lỗi và dòng trống), cùng một lần chạy qua `Pool`
+4 worker thật so với bảng kết quả mong đợi do chính test tự tính.
 
-- spend parsing into cents, including the forms that must be rejected (`1e2`, `1_000`, `nan`, `-5.0`, more than two decimals, ...);
-- aggregation, malformed rows (checking that a bad row adds nothing to a campaign that already has totals), blank lines, empty and header-only files, wrong headers;
-- exact CTR/CPA, including zero impressions and zero conversions;
-- ranking order, which ten campaigns survive the top-10 cut, a tie at tenth place, `campaign_id` tie-breaks, and a tie that floats cannot separate;
-- half-up formatting;
-- CSV writing with empty metrics;
-- end-to-end runs through `main()`: normal output, missing input, unparseable CSV, and an output path that cannot be written.
+## 3. Thư viện được sử dụng
 
-### Cross-check on the full dataset
+- **`aggregator.py` chỉ dùng thư viện chuẩn của Python:** `argparse`, `collections`, `contextlib`,
+  `csv`, `fractions`, `heapq`, `multiprocessing`, `os`, `re`, `shutil`, `sys`, `tempfile`, `typing`,
+  `zipfile`, `zlib`.
+- Các script chỉ dùng thư viện chuẩn (`benchmark.py` dùng thêm `ctypes` để gọi API Windows), riêng
+  `verify_with_duckdb.py` dùng `duckdb`.
+- Kiểm thử: `pytest`.
 
-```bash
-python scripts/verify_with_duckdb.py --input data/ad_data.csv --results results/
-```
+## 4. Thời gian xử lý tệp 1GB
 
-This script recomputes both rankings independently with DuckDB (exact `DECIMAL` sums) and compares them cell by cell with the files in `results/`. Result on 2026-11-02, with the current code: both files are **identical**.
+Đo bằng `python scripts\benchmark.py --input data\ad_data.csv`; các bản ghi gốc nằm trong
+`benchmark.log`. Máy đo: Windows 10, CPU Intel 6 nhân / 12 luồng, RAM 15.9 GB, Python 3.14.10.
+Tệp nằm sẵn trong bộ nhớ đệm của hệ điều hành, 4 worker, 16 khoảng byte, không có tải nào khác.
 
-`scripts/inspect_data.py` is a one-pass data survey. It reported 26,843,544 rows, 0 malformed rows, 50 campaigns, no rows with `impressions = 0`, and 326,361 rows with `conversions = 0`.
-
-## Libraries used
-
-| Library | Where | Purpose |
-|---|---|---|
-| Standard library (`csv`, `argparse`, `re`, `fractions`, `heapq`, `pathlib`, `collections`, `sys`) | `aggregator.py` | Parsing, exact arithmetic, ranking, output |
-| Standard library (`subprocess`, `ctypes`, `statistics`, ...) | `benchmark.py` | Timing and peak memory (Windows), not part of the product |
-| `pytest` | `tests/` | Tests |
-| `duckdb` | `scripts/verify_with_duckdb.py` | Independent verification only, not part of the product |
-
-## Performance on the 1GB file
-
-```bash
-python benchmark.py --runs 3 --log benchmark.log -- --input data/ad_data.csv --output results
-```
-
-Three consecutive runs from [`benchmark.log`](benchmark.log) (session `2026-11-02 18:10:25`):
-
-| Run | Elapsed | Peak memory |
-|---|---|---|
-| 1 | 56.90 s | 16.7 MiB |
-| 2 | 56.13 s | 16.7 MiB |
-| 3 | 55.43 s | 16.5 MiB |
-| **Median** | **56.13 s** | **max 16.7 MiB** |
-
-Each run processed 50 campaigns and skipped 0 rows.
-
-**Machine:** Intel Core i5-10400F (6 cores / 12 threads, 2.90 GHz), 15.9 GB RAM, Windows 10 Pro 10.0.19043, Python 3.14.10. Input file on a SATA HDD (Seagate ST500DM002), NTFS. Single-threaded.
-
-**How it was measured:** `benchmark.py` starts each run as a separate `aggregator.py` process.
-
-- Elapsed time is wall-clock time from process start to exit, including interpreter start-up.
-- Peak memory is the child process's peak working set, read with the Win32 `GetProcessMemoryInfo` call after the child exits.
-- The runs were back to back, and the OS file cache was not cleared between runs.
-
-`benchmark.log` also contains:
-- an earlier session with the same code (median 55.86 s, max 16.7 MiB);
-- three runs of a previous version (median 64.75 s, about 19.6 MiB). That version parsed `spend` with `Decimal` and measured itself inside the process with `psutil`.
-
-**Where the time goes:** this profile was taken on that previous `Decimal` version, using the first 2 million rows and scaling linearly, so treat it as an estimate.
-
-| Step | Share of total time |
+| Lần đo | Thời gian |
 |---|---|
-| `Decimal` parsing of `spend` | ~45% |
-| `csv.reader` | ~23% |
-| `int()` conversions | ~10% |
-| per-row checks and dictionary updates | ~17% |
-| file reading | ~5% |
+| 1 | 40.49 s |
+| 2 | 40.21 s |
+| 3 | 38.22 s |
+| **Trung vị** | **40.21 s** |
 
-Replacing `Decimal` with the regex parser described below took about 9 s off the median run: 64.75 s → 56.13 s. The current version has not been re-profiled.
+Ba bản ghi đầu trong `benchmark.log` (khoảng 37 s) được đo trước các thay đổi cuối về độ bền
+(giới hạn độ dài dòng, xử lý dấu nháy lạc); ba bản ghi sau là của mã được nộp.
 
-Possible further speed-ups, not done:
-- a hand-written string parser for `spend`. In isolation it measured about 2× faster than the regex (0.70 s vs 1.53 s for 2 million values), but that prototype did not yet include the validation this parser needs;
-- splitting the file into byte ranges and processing them in parallel. Merging is cheap because there are only 50 campaigns.
+Kết quả đã được đối chiếu với phép tính độc lập bằng DuckDB: **MATCH**. Với dữ liệu này, cả 10 giá trị CTR
+trong `top10_ctr.csv` đều hiển thị `0.0275`, nên thứ tự do phân số chính xác và tie-break theo
+`campaign_id` quyết định, không phải giá trị đã làm tròn.
 
-Memory stays flat at about 17 MiB because only one row is held at a time, plus one entry per campaign.
+## 5. Mức sử dụng bộ nhớ đỉnh
 
-## Design decisions
+Đã đo, cùng ba lần chạy ở trên:
 
-**Streaming, one pass.** The file is read row by row with `csv.reader`. Only the running totals per campaign are kept (`[impressions, clicks, spend_cents, conversions]`), so memory grows with the number of campaigns (50), not with the file size. `csv.reader` was kept instead of a faster `str.split(",")` because it handles quoted fields correctly.
+| Lần đo | Peak commit, cả cây tiến trình (tiến trình chính + 4 worker) | Peak working set, chỉ tiến trình chính |
+|---|---|---|
+| 1 | 75.4 MB | 21.4 MB |
+| 2 | 74.9 MB | 21.1 MB |
+| 3 | 74.7 MB | 21.1 MB |
+| **Lớn nhất** | **75.4 MB** | 21.4 MB |
 
-**Spend is summed as integer cents.** Each `spend` value must match `\d+(\.\d{1,2})?` (ASCII digits only). It is converted to an `int` number of cents.
+- **Con số dùng cho cả lần chạy là cột peak commit (~75 MB).** Nó được đọc từ job object của Windows,
+  nên gồm cả 4 worker. Commit là bộ nhớ riêng đã cấp phát, không đồng nhất với working set; cột working
+  set chỉ phản ánh tiến trình chính và không gồm các worker.
+- Bộ nhớ không tăng theo kích thước tệp: mỗi worker đọc từng dòng trong khoảng của mình và chỉ giữ một
+  bộ tổng nhỏ cho mỗi campaign. Bộ nhớ tăng theo số campaign *khác nhau*, không theo số dòng.
+- Một dòng dài hơn 64 KiB bị từ chối (xem bảng dưới) để mỗi worker không bao giờ phải nạp một dòng
+  khổng lồ vào bộ nhớ.
 
-- Everything else is a malformed row: signs, exponents (`1e2`), underscores (`1_000`), surrounding spaces, `5.`, `.5`, `nan`, `inf`, and more than two decimals.
-- Summing about 537,000 rows per campaign as floats drifts: a float run produced `394780333.96000457` instead of `394780333.96`. Integer cents are exact.
-- An earlier version parsed `spend` with `Decimal`. It was slower and accepted exponents, and a single `1e999990` value stalled it for about a minute.
+## 6. Quyết định thiết kế
 
-**Rank on exact fractions, round only when writing.** CTR is `Fraction(clicks, impressions)` and CPA is `Fraction(spend_cents, 100 * conversions)`. Rankings compare these exact values. Rounding happens only in `format_fraction`, using integer arithmetic (round half up, no floats). This matters for this dataset:
+Đề bài để ngỏ một số điểm. Mỗi dòng dưới đây nêu lựa chọn và lý do.
 
-- All 10 campaigns in `top10_ctr.csv` display `0.0275`, and four campaigns in `top10_cpa.csv` display `19.33`. Their order comes from digits that are hidden by rounding, so equal-looking rows are **not** in `campaign_id` order.
-- Ranking on rounded values would make the order arbitrary. Ranking on floats can mis-order true ties: `0.10 + 0.20` versus `0.30` (covered by a test).
+| Chủ đề | Quyết định | Lý do |
+|---|---|---|
+| Song song | 4 tiến trình cố định. Phần dữ liệu sau header chia thành `WORKERS * 4` = 16 khoảng byte liên tiếp. Mỗi khoảng sở hữu mọi dòng *bắt đầu* trong nó: worker lùi 1 byte, bỏ nốt phần dòng dở, rồi đọc đến khi dòng kế tiếp bắt đầu ở hoặc sau cuối khoảng. | Mỗi dòng được đếm đúng một lần dù ranh giới cắt ở đâu; 16 khoảng cho 4 worker giúp cân tải. `process_range` là hàm cấp module nên chạy đúng với `spawn` của Windows. |
+| Tệp nhỏ | Mỗi khoảng tối thiểu 1 MiB; tệp dưới 1 MiB đọc trong một khoảng, không tạo pool. | Tránh chi phí khởi động tiến trình, và tệp nhỏ không bị ảnh hưởng bởi ranh giới khoảng. |
+| CTR và CPA | Tính một lần cho mỗi campaign từ tổng, kiểu `Fraction`: `sum(clicks)/sum(impressions)` và `sum(spend)/sum(conversions)`. | Trung bình các tỷ lệ từng dòng là sai; giá trị chính xác tránh trôi số thực và hòa giả. |
+| Xếp hạng | Trên giá trị chính xác, không bao giờ trên giá trị đã làm tròn. Hòa thì theo `campaign_id` tăng dần. | Kết quả xác định, không phụ thuộc cách chia dòng cho worker. |
+| Làm tròn | Chỉ khi ghi file, theo half-up: CTR 4 chữ số, CPA và `total_spend` 2 chữ số. | Khớp bảng mẫu; tránh làm tròn chẵn của Python. |
+| Spend | Đọc thành số nguyên đơn vị 1e-6 USD, không dùng float. Chấp nhận tối đa 6 chữ số thập phân; có dấu, dạng mũ hoặc hơn 6 chữ số thì dòng bị loại. | Cộng chính xác; loại dòng an toàn hơn là âm thầm làm tròn tiền. Dữ liệu thật chỉ có tối đa 2 chữ số. |
+| CTR/CPA không xác định | Campaign không có impressions (CTR) hoặc không có conversions (CPA) vẫn được giữ; ô không xác định để trống, và campaign chỉ bị bỏ khỏi bảng xếp hạng của chỉ số đó. | Không bỏ dữ liệu âm thầm; tỷ lệ không xác định không bao giờ được xếp hạng. |
+| Dòng lỗi | Bị bỏ qua và đếm theo lý do: `wrong_column_count`, `empty_campaign_id`, `negative_value`, `not_a_number`, `spend_over_6_decimals`, `malformed_row`. Số phải là chữ số ASCII thuần, nên `nan`, `inf`, `1e5`, dấu, khoảng trắng và chữ số không phải ASCII đều bị loại. Dòng trống bị bỏ qua. | Một dòng hỏng không được làm mất kết quả của lần chạy 1 GB. |
+| `campaign_id` | Cắt khoảng trắng hai đầu; ngoài ra phân biệt hoa thường (`a` khác `A`). Số thì không bị cắt. | Khoảng trắng thừa sẽ âm thầm tách một campaign thành hai; còn ở số thì nó thành một dòng lỗi nhìn thấy được. |
+| Header | Phải có `campaign_id, impressions, clicks, spend, conversions` (không phân biệt hoa thường, thứ tự bất kỳ, cho phép cột thừa, cột bị lặp thì từ chối). Không cần, không dùng và không kiểm tra cột `date`. Chấp nhận BOM UTF-8. Header không phải CSV hợp lệ là lỗi đầu vào. | Dừng sớm với tệp không thể diễn giải. |
+| Dấu nháy | Dòng chứa `"` được phân tích bằng module `csv`: dấu phẩy và xuống dòng trong nháy hoạt động (một trường có thể trải dài tới 100 dòng). Một dòng nhiều dòng mà không hợp lệ chỉ tốn một dòng: đếm một lần rồi đọc tiếp từ dòng thứ hai, nên một dấu nháy lạc không thể nuốt các dòng phía sau. Trường trong nháy vượt giới hạn của `csv` (128 KB) là `malformed_row`. | Dữ liệu thật không có dấu nháy, nhưng một dấu `"` lạc không được làm mất dữ liệu âm thầm hay làm sập chương trình. |
+| Giới hạn của xử lý dấu nháy | Nếu ranh giới giữa hai khoảng rơi vào giữa một trường nháy nhiều dòng, khoảng sau bắt đầu giữa trường và đọc phần còn lại thành dòng lỗi. | Phát hiện trường hợp này cần quét tuần tự, làm mất ý nghĩa của việc chia khoảng. |
+| Độ dài dòng | Dòng dài hơn 64 KiB là lỗi đầu vào (thoát 1). | Chặn bộ nhớ mỗi worker; một dòng quảng cáo thật dài khoảng 40 byte, nên dòng như vậy nghĩa là tệp không phải CSV theo dòng (ví dụ kết thúc dòng chỉ bằng `\r`). |
+| Kết thúc dòng | Chấp nhận `\n` và `\r\n`. | |
+| Đầu vào zip | Giải nén vào thư mục tạm rồi chia khoảng như CSV. Zip phải chứa đúng một `.csv`. | Dữ liệu nén không thể đọc ở vị trí byte tùy ý. |
+| Ít hơn 10 campaign | Ghi bấy nhiêu dòng có. Không có dòng hợp lệ nào: tệp chỉ có header, mã thoát 0. | |
+| Không kiểm tra | `clicks > impressions` và định dạng `date`. | Đề không coi chúng là lỗi. |
+| In ra màn hình | Ký tự mà stdout không mã hóa được (ví dụ trong đường dẫn output qua pipe trên Windows) được thay bằng `?` thay vì làm sập chương trình. | Hai tệp kết quả đã được ghi xong trước khi in tóm tắt. |
 
-**Output format.** CTR has 4 decimals; `total_spend` and CPA have 2 decimals. Values are rounded half up: `10.125` becomes `10.13` and `0.03125` becomes `0.0313`. Python's `round()` would give `10.12` / `0.0312`. Integers are written as is. Files are UTF-8 with CRLF line endings (the `csv` module default).
-
-**Tie-break: `campaign_id` ascending.** This only applies when two campaigns have exactly the same CTR (or CPA). It is deterministic, easy to explain, and works as a string sort because the IDs are zero-padded (`CMP001`).
-
-**`impressions = 0` and `conversions = 0`.**
-
-- At row level, zeros are valid values and are summed normally (326,361 rows have `conversions = 0`).
-- At campaign level:
-  - `total_impressions = 0`: CTR is undefined, so the CTR cell is empty and the campaign is excluded from `top10_ctr.csv`.
-  - `total_conversions = 0`: CPA is undefined, so the CPA cell is empty and the campaign is excluded from `top10_cpa.csv`.
-- In the real data every campaign has non-zero totals, so no cell is empty.
-
-**Rows are not deduplicated.** The challenge defines each metric as a total over all records. Every valid row is summed, even when another row has the same `(campaign_id, date)`.
-
-**Measurement is kept out of the product.** `aggregator.py` does not time itself. `benchmark.py` measures it from the outside, so the product stays standard-library only and the numbers include everything a user would wait for.
-
-**Malformed rows are skipped and counted; file-level problems stop the program.**
-
-| Kind of problem | Behaviour |
-|---|---|
-| Wrong column count; non-integer `impressions`/`clicks`/`conversions`; `spend` not in the format above; any negative value | The row is skipped and counted, and the total is printed as `skipped rows`. A row is checked in full before anything is added, so a bad row never contributes partial totals. |
-| Blank lines | Ignored, not counted. |
-| Missing file, unreadable file, empty file, or a header that is not exactly `campaign_id,date,impressions,clicks,spend,conversions` (whitespace around names is trimmed) | `Error: ...` on stderr, exit code 1. |
-| Input that the `csv` module cannot parse (for example a field over 131,072 characters) | `Error: ...` on stderr, exit code 1. |
-| Output directory or files cannot be written | `Error: cannot write results: ...` on stderr, exit code 1. The two files are written one after the other, so if only the second write fails, the first file is already updated. |
-| Header-only file | Exit code 0 with header-only output files. |
-| `date` | Not used in the calculation and currently not validated. |
-| `campaign_id` | Used as is: it is not trimmed, and an empty ID is not rejected. |
-
-> TODO (planned, not implemented yet):
-> - count skipped rows by reason and report the first few line numbers on stderr;
-> - add a `--strict` flag;
-> - validate `date` and empty `campaign_id`;
-> - locate columns by name and accept a UTF-8 BOM;
-> - treat "no valid rows" as an error;
-> - write both result files atomically;
-> - move the `Campaigns: ...` summary to stderr.
-
-## Project layout
+## Cấu trúc thư mục
 
 ```
-aggregator.py                  # the CLI (product)
-benchmark.py                   # timing / peak memory, one process per run (Windows)
-tests/test_aggregator.py       # pytest suite
-scripts/inspect_data.py        # one-pass data survey
-scripts/verify_with_duckdb.py  # independent cross-check (DuckDB)
-results/                       # submitted top10_ctr.csv and top10_cpa.csv
-benchmark.log                  # raw timing / memory runs
-PROMPTS.md                     # AI assistant prompts, verbatim
+aggregator.py               chương trình chính (chỉ dùng thư viện chuẩn)
+tests/test_aggregator.py    bộ test pytest
+scripts/                    inspect_data.py, verify_with_duckdb.py, benchmark.py
+results/                    top10_ctr.csv, top10_cpa.csv sinh từ data\ad_data.csv
+benchmark.log               các lần đo (scripts\benchmark.py ghi nối thêm vào)
+Dockerfile, .dockerignore   image container
+requirements-dev.txt        pytest, duckdb (chỉ cho test và kiểm chứng)
+CLAUDE.md                   quy tắc làm việc cho trợ lý AI dùng trong dự án
+PROMPTS.md                  các prompt đã dùng
 ```
 
-## AI assistance
+## Sử dụng AI
 
-This solution was built with an AI coding assistant (Claude Code). The prompts are recorded verbatim in [`PROMPTS.md`](PROMPTS.md), as the challenge asks.
+Dự án dùng trợ lý AI lập trình trong suốt quá trình làm; toàn bộ prompt nằm trong
+[PROMPTS.md](PROMPTS.md).
