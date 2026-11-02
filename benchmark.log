@@ -1,0 +1,23 @@
+﻿=== 2026-11-02 17:08:56 | python aggregator.py --input data\ad_data.csv --output results ===
+Elapsed: 64.75s, peak memory: 19.5 MiB
+Campaigns: 50, skipped rows: 0
+=== 2026-11-02 17:12:34 | python aggregator.py --input data\ad_data.csv --output results ===
+Elapsed: 63.84s, peak memory: 19.7 MiB
+Campaigns: 50, skipped rows: 0
+=== 2026-11-02 17:14:30 | python aggregator.py --input data\ad_data.csv --output results ===
+Elapsed: 65.44s, peak memory: 19.8 MiB
+Campaigns: 50, skipped rows: 0
+=== 2026-11-02 17:41:30 | python aggregator.py --input data\ad_data.csv --output results ===
+Campaigns: 50, skipped rows: 0
+=== 2026-11-02 17:56:58 | Python 3.14.10 | Windows-10-10.0.19043-SP0 | 12 CPUs
+    command: aggregator.py --input data/ad_data.csv --output results
+run 1/3: 56.71s, peak 16.6 MiB, exit 0 | Campaigns: 50, skipped rows: 0
+run 2/3: 55.32s, peak 16.6 MiB, exit 0 | Campaigns: 50, skipped rows: 0
+run 3/3: 55.86s, peak 16.7 MiB, exit 0 | Campaigns: 50, skipped rows: 0
+summary: elapsed min 55.32s / median 55.86s / max 56.71s, peak memory max 16.7 MiB
+=== 2026-11-02 18:10:25 | Python 3.14.10 | Windows-10-10.0.19043-SP0 | 12 CPUs
+    command: aggregator.py --input data/ad_data.csv --output results
+run 1/3: 56.90s, peak 16.7 MiB, exit 0 | Campaigns: 50, skipped rows: 0
+run 2/3: 56.13s, peak 16.7 MiB, exit 0 | Campaigns: 50, skipped rows: 0
+run 3/3: 55.43s, peak 16.5 MiB, exit 0 | Campaigns: 50, skipped rows: 0
+summary: elapsed min 55.43s / median 56.13s / max 56.90s, peak memory max 16.7 MiB
