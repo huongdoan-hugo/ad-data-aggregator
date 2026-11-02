@@ -43,3 +43,15 @@
 21. Chạy scripts/benchmark.py trên data/ad_data.csv 3 lần và ghi vào benchmark.log. Sau đó xóa results/*.csv, chạy aggregator.py để sinh lại kết quả, rồi chạy scripts/verify_with_duckdb.py và báo MATCH hay lệch. Lập bảng so sánh trung vị thời gian của lần đo mốc (một tiến trình) và 4 worker. Nếu lệch, phân tích nguyên nhân, chưa sửa.
 
 22. commit lại các file cần thiết trừ ad_data.csv, .claude
+
+23. Review aggregator.py, scripts/ và tests/ trước khi nộp: dead code, comment thừa, tên chưa rõ, xử lý lỗi thiếu, test yếu, edge case chưa test, chỗ nào RAM tăng theo kích thước file. Chỉ liệt kê theo mức độ quan trọng, chưa sửa.
+
+24. sửa lại mức cao
+
+25. Chạy scripts/benchmark.py trên data/ad_data.csv 3 lần và ghi vào benchmark.log. Sau đó xóa results/*.csv, chạy aggregator.py để sinh lại kết quả
+
+26. sửa cả lỗi mức trung bình và thấp
+
+27. Soạn README.md từ aggregator.py, scripts/, tests/ và benchmark.log: bài toán, cài đặt, cách chạy, cách chạy test, thư viện, thời gian và peak memory trên file 1GB, mục Quyết định thiết kế
+
+28. chạy test lại 1 lần cuối , đối chiếu kết quả

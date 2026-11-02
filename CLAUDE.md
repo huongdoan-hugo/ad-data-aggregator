@@ -16,9 +16,9 @@ Aggregator. Chấm theo: đúng kết quả, code sạch, xử lý lỗi, hiệu
 - Chạy: `python aggregator.py --input data\ad_data.csv --output results` (nhận cả `.zip`)
 - Test: `python -m pytest`
 - Khảo sát dữ liệu: `python scripts\inspect_data.py`
-- Benchmark: `python scripts\benchmark.py --input data\ad_data.csv` (ghi vào `benchmark.log`; chỉ đo tiến trình chính)
-- Verify: so output với một phép gộp độc lập (DuckDB, DECIMAL + Fraction). Chưa có script trong repo;
-  ghi output ra thư mục tạm, không ghi vào `results/`.
+- Benchmark: `python scripts\benchmark.py --input data\ad_data.csv` (ghi vào `benchmark.log`; đo cả cây tiến trình bằng job object)
+- Verify: `python scriptserify_with_duckdb.py` (so `results/` với phép gộp độc lập bằng DuckDB;
+  cần `pip install -r requirements-dev.txt`). In MATCH hoặc từng chỗ lệch.
 
 ## Quy tắc cứng
 1. Không mở, đọc, `head`, in nội dung `data/ad_data.csv`. Chỉ chương trình trong repo được stream nó.
@@ -29,7 +29,7 @@ Aggregator. Chấm theo: đúng kết quả, code sạch, xử lý lỗi, hiệu
 6. Môi trường là Windows PowerShell: dùng cú pháp PowerShell, đường dẫn `\`.
 7. Diff nhỏ, không refactor ngoài phạm vi yêu cầu.
 8. Hỏi người dùng trước khi đổi bất kỳ quyết định thiết kế nào bên dưới.
-9. Mỗi prompt của người dùng được thêm vào `PROMPTS.md`.
+9. Không ghi thêm prompt vào `PROMPTS.md` (người dùng đã dừng việc này); giữ nguyên các prompt đã có.
 
 ## Quyết định thiết kế đã duyệt
 - 4 worker cố định (process), WORKERS*4 khoảng byte; khoảng sở hữu mọi dòng BẮT ĐẦU trong nó;
@@ -40,5 +40,6 @@ Aggregator. Chấm theo: đúng kết quả, code sạch, xử lý lỗi, hiệu
 - Spend đọc thành số nguyên 1e-6 USD (tối đa 6 chữ số thập phân), không dùng float.
 - impressions = 0 hoặc conversions = 0: giữ campaign, ô CTR/CPA trống, chỉ bỏ khỏi bảng xếp hạng
   của chỉ số đó.
-- Dòng lỗi (sai số cột, không phải số, số âm, id rỗng) bị bỏ qua và đếm; header sai thì dừng (exit 1).
+- Dòng lỗi (sai số cột, không phải số, số âm, id rỗng, nháy hỏng) bị bỏ qua và đếm; header sai hoặc
+  dòng dài hơn 64 KiB thì dừng (exit 1). `campaign_id` được cắt khoảng trắng hai đầu, số thì không.
 - Chấp nhận BOM UTF-8, CRLF, trường có nháy (trừ khi ranh giới khoảng cắt giữa trường nhiều dòng), cột đổi thứ tự.

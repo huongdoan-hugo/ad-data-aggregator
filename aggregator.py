@@ -17,8 +17,10 @@ from fractions import Fraction
 from typing import NamedTuple, Optional
 
 WORKERS = 4
-RANGES = WORKERS * 4
+RANGE_COUNT = WORKERS * 4
 MIN_RANGE_BYTES = 1 << 20
+MAX_LINE_BYTES = 1 << 16
+MAX_ROW_LINES = 100
 TOP_N = 10
 SPEND_DECIMALS = 6
 SPEND_SCALE = 10**SPEND_DECIMALS
@@ -102,24 +104,6 @@ class Summary(NamedTuple):
     campaigns: int
 
 
-class LineReader:
-    """Iterate over the decoded lines of a binary file, tracking where the next line starts."""
-
-    def __init__(self, handle, position):
-        self.handle = handle
-        self.position = position
-
-    def __iter__(self):
-        return self
-
-    def __next__(self):
-        line = self.handle.readline()
-        if not line:
-            raise StopIteration
-        self.position += len(line)
-        return line.decode("utf-8", "replace")
-
-
 def locate_columns(header):
     """Return (column count, indices of REQUIRED_COLUMNS) for a header row."""
     names = [name.strip().lower() for name in header]
@@ -132,13 +116,27 @@ def locate_columns(header):
     return len(names), tuple(names.index(column) for column in REQUIRED_COLUMNS)
 
 
+def read_line(handle):
+    """Read one line, refusing lines longer than MAX_LINE_BYTES so memory stays bounded."""
+    line = handle.readline(MAX_LINE_BYTES)
+    if len(line) == MAX_LINE_BYTES and not line.endswith(b"\n"):
+        raise InputError(
+            f"line at byte {handle.tell() - len(line)} is longer than {MAX_LINE_BYTES} bytes; "
+            "not a row-oriented CSV file?"
+        )
+    return line
+
+
 def read_header(path):
     with open(path, "rb") as handle:
-        first_line = handle.readline()
+        first_line = read_line(handle)
         data_start = handle.tell()
     if not first_line:
         raise InputError("input file is empty")
-    names = next(csv.reader([first_line.decode("utf-8-sig", "replace")]))
+    try:
+        names = next(csv.reader([first_line.decode("utf-8-sig", "replace")]))
+    except csv.Error as error:
+        raise InputError(f"header is not valid CSV: {error}") from error
     return Header(data_start, *locate_columns(names))
 
 
@@ -163,6 +161,7 @@ def parse_row(fields, width, columns):
     if len(fields) != width:
         raise BadRow("wrong_column_count")
     campaign, impressions, clicks, spend, conversions = (fields[index] for index in columns)
+    campaign = campaign.strip()
     if not campaign:
         raise BadRow("empty_campaign_id")
     if any(value.startswith("-") for value in (impressions, clicks, spend, conversions)):
@@ -190,33 +189,58 @@ def plan_ranges(path, count):
     return [RangeTask(path, start, end, header.width, header.columns) for start, end in ranges]
 
 
+def read_row_lines(handle):
+    """Read one row: a physical line, plus the following lines while a quoted field is open."""
+    lines = [read_line(handle)]
+    quotes = lines[0].count(b'"')
+    while quotes % 2 and lines[-1] and len(lines) < MAX_ROW_LINES:
+        lines.append(read_line(handle))
+        quotes += lines[-1].count(b'"')
+    return lines
+
+
+def split_fields(raw_row):
+    text = raw_row.decode("utf-8", "replace")
+    if '"' not in text:
+        return text.rstrip("\r\n").split(",")
+    try:
+        return next(csv.reader([text]))
+    except csv.Error as error:
+        raise BadRow("malformed_row") from error
+
+
 def process_range(task):
     """Aggregate every row that starts inside the byte range [task.start, task.end).
 
     The byte before the range is read first and the rest of that line is skipped, which lands
     on the first line that starts at or after task.start. The last row may extend past task.end.
+    A row that spans several lines but is invalid is counted once, and reading resumes at its
+    second line, so a stray quote costs one row instead of swallowing the rows after it.
     """
     totals = collections.defaultdict(Totals)
     bad_rows = collections.Counter()
     rows = 0
     with open(task.path, "rb") as handle:
         handle.seek(task.start - 1)
-        handle.readline()
-        lines = LineReader(handle, handle.tell())
-        reader = csv.reader(lines)
-        while lines.position < task.end:
-            fields = next(reader, None)
-            if fields is None:
+        read_line(handle)
+        position = handle.tell()
+        while position < task.end:
+            lines = read_row_lines(handle)
+            if not lines[0]:
                 break
-            if not fields:
-                continue
-            rows += 1
-            try:
-                campaign, *values = parse_row(fields, task.width, task.columns)
-            except BadRow as bad_row:
-                bad_rows[bad_row.reason] += 1
-                continue
-            totals[campaign].add(*values)
+            raw_row = b"".join(lines)
+            consumed = len(raw_row)
+            if raw_row.strip(b"\r\n"):
+                rows += 1
+                try:
+                    campaign, *values = parse_row(split_fields(raw_row), task.width, task.columns)
+                except BadRow as bad_row:
+                    bad_rows[bad_row.reason] += 1
+                    consumed = len(lines[0])
+                    handle.seek(position + consumed)
+                else:
+                    totals[campaign].add(*values)
+            position += consumed
     return RangeResult(dict(totals), bad_rows, rows)
 
 
@@ -234,7 +258,7 @@ def merge_results(results):
 
 
 def range_count(file_size):
-    return max(1, min(RANGES, file_size // MIN_RANGE_BYTES))
+    return max(1, min(RANGE_COUNT, file_size // MIN_RANGE_BYTES))
 
 
 def run_ranges(tasks):
@@ -365,6 +389,12 @@ def parse_args(argv):
     return parser.parse_args(argv)
 
 
+def print_replacing_unencodable(message):
+    """Print without failing when stdout (e.g. a Windows pipe) cannot encode a path character."""
+    encoding = sys.stdout.encoding or "utf-8"
+    print(message.encode(encoding, "replace").decode(encoding))
+
+
 def main(argv=None):
     args = parse_args(argv)
     try:
@@ -372,9 +402,11 @@ def main(argv=None):
     except (InputError, OSError) as error:
         print(f"error: {error}", file=sys.stderr)
         return 1
-    print(f"Read {summary.rows} data rows, {summary.campaigns} campaigns.")
-    print(f"Skipped {sum(summary.bad_rows.values())} bad rows {dict(summary.bad_rows)}.")
-    print(f"Wrote top10_ctr.csv and top10_cpa.csv to {args.output}")
+    print_replacing_unencodable(f"Read {summary.rows} data rows, {summary.campaigns} campaigns.")
+    print_replacing_unencodable(
+        f"Skipped {sum(summary.bad_rows.values())} bad rows {dict(summary.bad_rows)}."
+    )
+    print_replacing_unencodable(f"Wrote top10_ctr.csv and top10_cpa.csv to {args.output}")
     return 0
 
 

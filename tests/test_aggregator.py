@@ -1,5 +1,7 @@
 import csv
+import io
 import os
+import sys
 import zipfile
 from decimal import Decimal
 from fractions import Fraction
@@ -210,10 +212,77 @@ class TestParsing:
         assert dict(summary.bad_rows) == {}
         assert by_ctr[1][3] == expected_total
 
+    @pytest.mark.parametrize("digits", ["١٢٣", "１２３", "²"])
+    def test_non_ascii_digits_are_not_numbers(self, write_input, run_aggregator, digits):
+        path = write_input(HEADER + f"A,d,{digits},10,10,1\nB,d,100,10,10,1\n")
+        summary, by_ctr, _ = run_aggregator(path)
+        assert dict(summary.bad_rows) == {"not_a_number": 1}
+        assert ids(by_ctr) == ["B"]
+
+    def test_bom_and_crlf_together(self, write_input, run_aggregator):
+        text = (HEADER + "A,d,100,10,10,1\nB,d,100,20,10,1\n").replace("\n", "\r\n")
+        summary, by_ctr, _ = run_aggregator(write_input(b"\xef\xbb\xbf" + text.encode()))
+        assert dict(summary.bad_rows) == {}
+        assert ids(by_ctr) == ["B", "A"]
+
+    def test_date_column_is_optional(self, write_input, run_aggregator):
+        path = write_input("campaign_id,impressions,clicks,spend,conversions\nA,100,10,10,1\n")
+        _, by_ctr, _ = run_aggregator(path)
+        assert by_ctr[1] == ["A", "100", "10", "10.00", "1", "0.1000", "10.00"]
+
     def test_blank_lines_are_ignored(self, write_input, run_aggregator):
         path = write_input(HEADER + "A,d,100,10,10,1\n\n\nA,d,100,10,10,1\n\n")
         summary, _, _ = run_aggregator(path)
         assert (summary.rows, dict(summary.bad_rows)) == (2, {})
+
+    def test_unterminated_quote_costs_one_row_not_the_rows_after_it(
+        self, write_input, run_aggregator
+    ):
+        rows = sample_rows(300)
+        text = HEADER + "\n".join(rows[:100]) + '\nA,d,100,10,"10,1\n' + "\n".join(rows[100:]) + "\n"
+        path = write_input(text)
+        summary, _, _ = run_aggregator(path)
+        totals, _, _ = aggregator.aggregate(path)
+        assert dict(summary.bad_rows) == {"wrong_column_count": 1}
+        assert summary.rows == 301
+        assert totals_as_tuples(totals) == expected_totals(rows)
+
+    def test_two_stray_quotes_that_pair_up_do_not_hide_the_rows_between_them(
+        self, write_input, run_aggregator
+    ):
+        path = write_input(
+            HEADER + 'A,d,100,10,"10,1\nB,d,100,20,10,1\nC,d,"5,1\nD,d,100,30,10,1\n'
+        )
+        summary, _, _ = run_aggregator(path)
+        totals, _, _ = aggregator.aggregate(path)
+        assert sorted(totals) == ["B", "D"]
+        assert sum(summary.bad_rows.values()) == 2
+
+    def test_quoted_field_over_the_csv_field_limit_is_a_bad_row(self, write_input, run_aggregator):
+        oversized = 'A,d,100,10,"' + "x" * 50000 + "\n" + "y" * 50000 + "\n" + "z" * 50000 + '",1\n'
+        path = write_input(HEADER + oversized + "B,d,100,20,10,1\n")
+        summary, by_ctr, _ = run_aggregator(path)
+        assert summary.bad_rows["malformed_row"] >= 1
+        assert ids(by_ctr) == ["B"]
+
+    def test_line_longer_than_the_limit_is_an_input_error(self, tmp_path, write_input):
+        path = write_input(HEADER + "A,d,100,10,10,1\n" + "x" * (aggregator.MAX_LINE_BYTES + 10) + "\n")
+        with pytest.raises(aggregator.InputError, match="longer than 65536 bytes"):
+            aggregator.run(path, str(tmp_path))
+
+    def test_surrounding_spaces_in_campaign_id_are_ignored_but_numbers_stay_strict(
+        self, write_input, run_aggregator
+    ):
+        path = write_input(HEADER + " A ,d,100,10,10,1\nA,d,100,10,10,1\nA,d, 100,10,10,1\n")
+        summary, by_ctr, _ = run_aggregator(path)
+        assert ids(by_ctr) == ["A"]
+        assert by_ctr[1][1] == "200"
+        assert dict(summary.bad_rows) == {"not_a_number": 1}
+
+    def test_campaign_ids_differ_by_letter_case(self, write_input, run_aggregator):
+        path = write_input(HEADER + "a,d,100,10,10,1\nA,d,100,10,10,1\n")
+        _, by_ctr, _ = run_aggregator(path)
+        assert sorted(ids(by_ctr)) == ["A", "a"]
 
     def test_spend_with_up_to_six_decimals_is_exact(self, write_input, run_aggregator):
         path = write_input(HEADER + "A,d,100,10,0.000001,1\nA,d,100,10,0.999999,1\n")
@@ -261,6 +330,22 @@ class TestInputHandling:
         path = write_input("campaign_id,date,impressions,clicks,spend\nA,d,1,1,1\n")
         with pytest.raises(aggregator.InputError, match="conversions"):
             aggregator.run(path, str(tmp_path))
+
+    def test_blank_first_line_is_a_header_error(self, tmp_path, write_input):
+        with pytest.raises(aggregator.InputError, match="missing required columns"):
+            aggregator.run(write_input("\nA,d,100,10,10,1\n"), str(tmp_path))
+
+    def test_binary_garbage_header_is_an_input_error(self, tmp_path, write_input):
+        path = write_input(b"\x00\r\x01\xff\nabc\n")
+        with pytest.raises(aggregator.InputError, match="not valid CSV"):
+            aggregator.run(path, str(tmp_path))
+
+    def test_file_without_line_breaks_is_rejected_after_a_bounded_read(
+        self, monkeypatch, tmp_path, write_input
+    ):
+        monkeypatch.setattr(aggregator, "MAX_LINE_BYTES", 64)
+        with pytest.raises(aggregator.InputError, match="longer than 64 bytes"):
+            aggregator.run(write_input(b"x" * 1000), str(tmp_path))
 
     def test_header_with_duplicate_column(self, tmp_path, write_input):
         path = write_input("campaign_id,impressions,clicks,spend,conversions,clicks\n")
@@ -388,6 +473,23 @@ class TestRanges:
         assert dict(bad_rows) == {}
         assert totals_as_tuples(totals) == expected_totals(rows)
 
+    @pytest.mark.parametrize("count", [1, 3, 8, 50, 500])
+    def test_bad_and_blank_rows_are_counted_once_across_ranges(self, write_input, count):
+        rows = sample_rows(60)
+        lines = []
+        for index, row in enumerate(rows):
+            lines.append(row)
+            if index % 10 == 0:
+                lines.append("X,d,oops,1,1,1")
+            if index % 15 == 0:
+                lines.append("")
+        path = write_input(HEADER + "\n".join(lines) + "\n")
+        results = [aggregator.process_range(task) for task in aggregator.plan_ranges(path, count)]
+        totals, bad_rows, row_count = aggregator.merge_results(results)
+        assert dict(bad_rows) == {"not_a_number": 6}
+        assert row_count == 66
+        assert totals_as_tuples(totals) == expected_totals(rows)
+
     def test_each_range_keeps_only_rows_that_start_in_it(self, write_input):
         first, second, third = "A,d,1,1,1,1\n", "B,d,2,1,1,1\n", "C,d,4,1,1,1\n"
         path = write_input(HEADER + first + second + third)
@@ -419,9 +521,9 @@ class TestRanges:
         assert aggregator.merge_results([])[2] == 0
 
     def test_range_count_is_capped_and_small_files_stay_in_one_range(self):
-        assert aggregator.RANGES == aggregator.WORKERS * 4
+        assert aggregator.RANGE_COUNT == aggregator.WORKERS * 4
         assert aggregator.range_count(10) == 1
-        assert aggregator.range_count(10**12) == aggregator.RANGES
+        assert aggregator.range_count(10**12) == aggregator.RANGE_COUNT
 
 
 class TestPool:
@@ -448,6 +550,20 @@ class TestPool:
         assert by_cpa == expected_cpa
 
 
+    def test_zip_input_through_the_pool(
+        self, monkeypatch, tmp_path, write_input, run_aggregator
+    ):
+        monkeypatch.setattr(aggregator, "MIN_RANGE_BYTES", 1)
+        rows = sample_rows(1500)
+        csv_path = write_input(HEADER + "\n".join(rows) + "\n")
+        zip_path = tmp_path / "ad_data.csv.zip"
+        with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as archive:
+            archive.write(csv_path, "ad_data.csv")
+        summary, by_ctr, by_cpa = run_aggregator(str(zip_path))
+        assert (by_ctr, by_cpa) == expected_tables(rows)
+        assert summary.rows == 1500
+
+
 class TestCommandLine:
     def test_exit_codes(self, tmp_path, write_input):
         path = write_input(HEADER + "A,d,100,10,10,1\n")
@@ -457,3 +573,53 @@ class TestCommandLine:
         assert aggregator.main(["--input", missing, "--output", output]) == 1
         with pytest.raises(SystemExit):
             aggregator.main(["--input", path])
+
+    def test_non_csv_input_is_a_clean_error_without_traceback(
+        self, tmp_path, write_input, capsys
+    ):
+        path = write_input(b"\x00\r\x01\xff\nabc\n")
+        assert aggregator.main(["--input", path, "--output", str(tmp_path / "out")]) == 1
+        error_output = capsys.readouterr().err
+        assert error_output.startswith("error:")
+        assert "Traceback" not in error_output
+
+    def test_output_path_that_stdout_cannot_encode_does_not_crash(
+        self, monkeypatch, tmp_path, write_input
+    ):
+        pipe = io.TextIOWrapper(io.BytesIO(), encoding="cp1252")
+        monkeypatch.setattr(sys, "stdout", pipe)
+        path = write_input(HEADER + "A,d,100,10,10,1\n")
+        output = tmp_path / "kết_quả"
+        assert aggregator.main(["--input", path, "--output", str(output)]) == 0
+        pipe.flush()
+        assert b"k?t_qu?" in pipe.buffer.getvalue()
+        assert (output / "top10_ctr.csv").is_file()
+
+    def test_summary_goes_to_stdout_and_errors_to_stderr(self, tmp_path, write_input, capsys):
+        path = write_input(HEADER + "A,d,100,10,10,1\nA,d,abc,10,10,1\n")
+        output = str(tmp_path / "out")
+        assert aggregator.main(["--input", path, "--output", output]) == 0
+        printed = capsys.readouterr()
+        assert "Read 2 data rows, 1 campaigns." in printed.out
+        assert "Skipped 1 bad rows {'not_a_number': 1}." in printed.out
+        assert printed.err == ""
+        assert aggregator.main(["--input", str(tmp_path / "x.csv"), "--output", output]) == 1
+        assert "input file not found" in capsys.readouterr().err
+
+    def test_output_path_that_is_a_file_is_an_error(self, tmp_path, write_input, capsys):
+        taken = tmp_path / "taken"
+        taken.write_text("not a directory")
+        path = write_input(HEADER + "A,d,100,10,10,1\n")
+        assert aggregator.main(["--input", path, "--output", str(taken)]) == 1
+        assert capsys.readouterr().err.startswith("error:")
+
+    def test_nested_output_directory_is_created_and_old_results_are_replaced(
+        self, tmp_path, write_input
+    ):
+        output = tmp_path / "a" / "b"
+        first = write_input(HEADER + "A,d,100,10,10,1\n", name="first.csv")
+        second = write_input(HEADER + "B,d,100,10,10,1\n", name="second.csv")
+        assert aggregator.main(["--input", first, "--output", str(output)]) == 0
+        assert aggregator.main(["--input", second, "--output", str(output)]) == 0
+        with open(output / "top10_ctr.csv", newline="", encoding="utf-8") as handle:
+            assert ids(list(csv.reader(handle))) == ["B"]

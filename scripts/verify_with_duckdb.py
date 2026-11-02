@@ -3,6 +3,9 @@
 Independent of aggregator.py. Totals come from DuckDB (exact DECIMAL sums); ranking uses
 exact Fractions with ties broken by campaign_id. Prints MATCH and exits 0 when the result
 files agree, otherwise prints every difference and exits 1.
+
+DuckDB fails on rows the aggregator would skip (non-numeric values, more than 6 spend
+decimals), so this check is meant for clean input; it then reports a DuckDB error and exits 1.
 """
 
 import argparse
@@ -11,7 +14,11 @@ import os
 import sys
 from fractions import Fraction
 
-import duckdb
+
+try:
+    import duckdb
+except ImportError:
+    sys.exit("error: this script needs DuckDB (pip install duckdb)")
 
 TOP_N = 10
 EXPECTED_HEADER = [
@@ -37,7 +44,6 @@ TOTALS_QUERY = """
         header = true,
         types = {
             'campaign_id': 'VARCHAR',
-            'date': 'VARCHAR',
             'impressions': 'BIGINT',
             'clicks': 'BIGINT',
             'spend': 'DECIMAL(18, 6)',
@@ -83,17 +89,18 @@ def read_result_file(path):
 
 
 def differences_in_value(label, actual_text, expected, places):
-    """Compare a written decimal with the exact value; allow half a unit of the last place."""
+    """Compare a written decimal with the exact value; it must be the value rounded half up."""
     if expected is None:
         return [] if actual_text == "" else [f"{label}: expected blank, found {actual_text!r}"]
     try:
         actual = Fraction(actual_text)
     except (ValueError, ZeroDivisionError):
         return [f"{label}: expected about {float(expected):.{places + 2}f}, found {actual_text!r}"]
-    if abs(actual - expected) > Fraction(1, 2 * 10**places):
+    half_unit = Fraction(1, 2 * 10**places)
+    if not -half_unit < actual - expected <= half_unit:
         return [
             f"{label}: expected {float(expected):.{places + 2}f} "
-            f"(rounded to {places} places), found {actual_text}"
+            f"(rounded half up to {places} places), found {actual_text}"
         ]
     return []
 
@@ -158,7 +165,12 @@ def main(argv=None):
         if not os.path.isfile(path):
             print(f"error: file not found: {path}", file=sys.stderr)
             return 1
-    top_ctr, top_cpa = expected_rankings(load_expected_campaigns(args.input))
+    try:
+        campaigns = load_expected_campaigns(args.input)
+    except duckdb.Error as error:
+        print(f"error: DuckDB could not aggregate {args.input}: {error}", file=sys.stderr)
+        return 1
+    top_ctr, top_cpa = expected_rankings(campaigns)
     differences = differences_in_file(
         "top10_ctr.csv", read_result_file(paths["top10_ctr.csv"]), top_ctr
     ) + differences_in_file("top10_cpa.csv", read_result_file(paths["top10_cpa.csv"]), top_cpa)

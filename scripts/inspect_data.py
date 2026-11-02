@@ -1,19 +1,21 @@
 """Stream a large ad_data.csv once and print only a summary of its shape and quality."""
 
 import argparse
+import re
 import sys
 
 EXPECTED_HEADER = ["campaign_id", "date", "impressions", "clicks", "spend", "conversions"]
 NUMERIC_COLUMNS = {2: "impressions", 3: "clicks", 4: "spend", 5: "conversions"}
 PREVIEW_LINES = 5
+INTEGER = re.compile(r"-?[0-9]+")
+DECIMAL = re.compile(r"-?[0-9]+(?:\.[0-9]*)?")
 
 
 def parse_number(raw, column):
-    """Return the parsed value, or None when `raw` is not a number for that column."""
-    try:
-        return float(raw) if column == 4 else int(raw)
-    except ValueError:
-        return None
+    """Return the parsed value, or None unless `raw` is plain decimal digits (no nan, inf or 1e5)."""
+    if column == 4:
+        return float(raw) if DECIMAL.fullmatch(raw) else None
+    return int(raw) if INTEGER.fullmatch(raw) else None
 
 
 def decimals_of(raw):
@@ -38,7 +40,7 @@ def inspect(path):
 
     with open(path, "rb") as handle:
         header_line = handle.readline()
-        header = header_line.decode("utf-8-sig").rstrip("\r\n").split(",")
+        header = header_line.decode("utf-8-sig", "replace").rstrip("\r\n").split(",")
         preview = [header_line.rstrip(b"\r\n").decode("utf-8", "replace")]
 
         for line in handle:
