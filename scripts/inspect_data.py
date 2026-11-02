@@ -1,131 +1,140 @@
-"""Stream a large ad_data.csv once and print a data-quality summary.
+"""Stream a large ad_data.csv once and print only a summary of its shape and quality."""
 
-Usage: python scripts/inspect_data.py [path/to/ad_data.csv] [--head 20]
-"""
 import argparse
-import csv
-import math
+import re
 import sys
-import time
-from datetime import date
 
-EXPECTED_COLUMNS = ["campaign_id", "date", "impressions", "clicks", "spend", "conversions"]
-INT_COLUMNS = ["impressions", "clicks", "conversions"]
-FLOAT_COLUMNS = ["spend"]
-NUMERIC_COLUMNS = ["impressions", "clicks", "spend", "conversions"]
-MAX_EXAMPLES = 5
+EXPECTED_HEADER = ["campaign_id", "date", "impressions", "clicks", "spend", "conversions"]
+NUMERIC_COLUMNS = {2: "impressions", 3: "clicks", 4: "spend", 5: "conversions"}
+PREVIEW_LINES = 5
+INTEGER = re.compile(r"-?[0-9]+")
+DECIMAL = re.compile(r"-?[0-9]+(?:\.[0-9]*)?")
 
 
-def parse_args():
-    parser = argparse.ArgumentParser(description="Summarize ad_data.csv without loading it into memory.")
-    parser.add_argument("path", nargs="?", default="data/ad_data.csv",
-                        help="Path to the CSV file (default: data/ad_data.csv)")
-    parser.add_argument("--head", type=int, default=20, help="Number of data rows to preview (default: 20)")
-    return parser.parse_args()
+def parse_number(raw, column):
+    """Return the parsed value, or None unless `raw` is plain decimal digits (no nan, inf or 1e5)."""
+    if column == 4:
+        return float(raw) if DECIMAL.fullmatch(raw) else None
+    return int(raw) if INTEGER.fullmatch(raw) else None
 
 
-def parse_row(row, index):
-    """Return (campaign_id, {column: number}) or raise ValueError."""
-    campaign_id = row[index["campaign_id"]].strip()
-    if not campaign_id:
-        raise ValueError("empty campaign_id")
-    date.fromisoformat(row[index["date"]].strip())
-    values = {name: int(row[index[name]]) for name in INT_COLUMNS}
-    for name in FLOAT_COLUMNS:
-        value = float(row[index[name]])
-        if not math.isfinite(value):
-            raise ValueError(f"non-finite {name}: {value}")
-        values[name] = value
-    return campaign_id, values
+def decimals_of(raw):
+    _, _, fraction = raw.partition(".")
+    return len(fraction)
+
+
+def inspect(path):
+    stats = {
+        "lines": 0,
+        "bytes": 0,
+        "bad_column_count": 0,
+        "bad_not_number": 0,
+        "bad_negative": 0,
+        "zero_impressions": 0,
+        "max_spend_decimals": 0,
+        "lines_with_quote": 0,
+        "lines_with_unbalanced_quote": 0,
+    }
+    ranges = {name: [None, None] for name in NUMERIC_COLUMNS.values()}
+    conversions_by_campaign = {}
+
+    with open(path, "rb") as handle:
+        header_line = handle.readline()
+        header = header_line.decode("utf-8-sig", "replace").rstrip("\r\n").split(",")
+        preview = [header_line.rstrip(b"\r\n").decode("utf-8", "replace")]
+
+        for line in handle:
+            stats["lines"] += 1
+            stats["bytes"] += len(line)
+            if stats["lines"] <= PREVIEW_LINES:
+                preview.append(line.rstrip(b"\r\n").decode("utf-8", "replace"))
+
+            if b'"' in line:
+                stats["lines_with_quote"] += 1
+                if line.count(b'"') % 2:
+                    stats["lines_with_unbalanced_quote"] += 1
+
+            fields = line.rstrip(b"\r\n").decode("utf-8", "replace").split(",")
+            if len(fields) != len(EXPECTED_HEADER):
+                stats["bad_column_count"] += 1
+                continue
+
+            values = {}
+            row_ok = True
+            for column, name in NUMERIC_COLUMNS.items():
+                value = parse_number(fields[column], column)
+                if value is None:
+                    stats["bad_not_number"] += 1
+                    row_ok = False
+                    break
+                values[name] = value
+            if not row_ok:
+                continue
+            if any(value < 0 for value in values.values()):
+                stats["bad_negative"] += 1
+                continue
+
+            for name, value in values.items():
+                low, high = ranges[name]
+                ranges[name][0] = value if low is None or value < low else low
+                ranges[name][1] = value if high is None or value > high else high
+            stats["max_spend_decimals"] = max(
+                stats["max_spend_decimals"], decimals_of(fields[4])
+            )
+            if values["impressions"] == 0:
+                stats["zero_impressions"] += 1
+            campaign = fields[0]
+            conversions_by_campaign[campaign] = (
+                conversions_by_campaign.get(campaign, 0) + values["conversions"]
+            )
+
+    return header, preview, stats, ranges, conversions_by_campaign
+
+
+def report(header, preview, stats, ranges, conversions_by_campaign):
+    lines = stats["lines"]
+    bad_total = (
+        stats["bad_column_count"] + stats["bad_not_number"] + stats["bad_negative"]
+    )
+    zero_conversion_campaigns = sum(
+        1 for total in conversions_by_campaign.values() if total == 0
+    )
+
+    print("First lines (header + data):")
+    for line in preview:
+        print(f"  {line}")
+    print(f"Header: {header}")
+    print(f"Header has exactly 6 columns: {len(header) == 6}")
+    print(f"Header matches expected names: {header == EXPECTED_HEADER}")
+    print(f"Data lines (excluding header): {lines}")
+    print(f"Distinct campaign_id (valid rows): {len(conversions_by_campaign)}")
+    print(
+        f"Bad rows: {bad_total} "
+        f"(wrong column count: {stats['bad_column_count']}, "
+        f"not a number: {stats['bad_not_number']}, "
+        f"negative: {stats['bad_negative']})"
+    )
+    print(f"Max decimal places in spend: {stats['max_spend_decimals']}")
+    print(
+        f"Lines containing a quote: {stats['lines_with_quote']} "
+        f"(odd quote count, i.e. possible multi-line field: "
+        f"{stats['lines_with_unbalanced_quote']})"
+    )
+    print(f"Average bytes per line: {stats['bytes'] / lines:.2f}" if lines else "No data lines")
+    for name, (low, high) in ranges.items():
+        print(f"{name}: min={low} max={high}")
+    print(f"Rows with impressions = 0: {stats['zero_impressions']}")
+    print(f"Campaigns with total conversions = 0: {zero_conversion_campaigns}")
 
 
 def main():
-    args = parse_args()
-    started = time.perf_counter()
-
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("path", nargs="?", default="data/ad_data.csv")
+    args = parser.parse_args()
     try:
-        f = open(args.path, newline="", encoding="utf-8")
-    except OSError as exc:
-        sys.exit(f"Cannot open {args.path}: {exc}")
-
-    with f:
-        reader = csv.reader(f)
-        header = next(reader, None)
-        if header is None:
-            sys.exit("File is empty.")
-        header = [name.strip() for name in header]
-        missing = [name for name in EXPECTED_COLUMNS if name not in header]
-        if missing:
-            sys.exit(f"Header is missing columns {missing}; got {header}")
-        index = {name: header.index(name) for name in EXPECTED_COLUMNS}
-
-        head_rows = []
-        total_rows = 0
-        wrong_column_count = 0
-        wrong_type = 0
-        bad_examples = []
-        campaign_ids = set()
-        minimum = {name: None for name in NUMERIC_COLUMNS}
-        maximum = {name: None for name in NUMERIC_COLUMNS}
-        zero_impressions = 0
-        zero_conversions = 0
-
-        for row in reader:
-            total_rows += 1
-            if len(head_rows) < args.head:
-                head_rows.append(row)
-
-            if len(row) != len(header):
-                wrong_column_count += 1
-                if len(bad_examples) < MAX_EXAMPLES:
-                    bad_examples.append((reader.line_num, f"{len(row)} columns", row))
-                continue
-
-            try:
-                campaign_id, values = parse_row(row, index)
-            except ValueError as exc:
-                wrong_type += 1
-                if len(bad_examples) < MAX_EXAMPLES:
-                    bad_examples.append((reader.line_num, str(exc), row))
-                continue
-
-            campaign_ids.add(campaign_id)
-            for name, value in values.items():
-                if minimum[name] is None or value < minimum[name]:
-                    minimum[name] = value
-                if maximum[name] is None or value > maximum[name]:
-                    maximum[name] = value
-            if values["impressions"] == 0:
-                zero_impressions += 1
-            if values["conversions"] == 0:
-                zero_conversions += 1
-
-    elapsed = time.perf_counter() - started
-    valid_rows = total_rows - wrong_column_count - wrong_type
-
-    print(f"Header: {header}")
-    print(f"\nFirst {len(head_rows)} data rows:")
-    for row in head_rows:
-        print(f"  {row}")
-
-    print(f"\nTotal data rows:           {total_rows:,}")
-    print(f"Valid rows:                {valid_rows:,}")
-    print(f"Rows with wrong # columns: {wrong_column_count:,}")
-    print(f"Rows with bad values:      {wrong_type:,}")
-    print(f"Distinct campaign_id:      {len(campaign_ids):,}")
-    print(f"Rows with impressions = 0: {zero_impressions:,}")
-    print(f"Rows with conversions = 0: {zero_conversions:,}")
-
-    print("\nNumeric ranges (valid rows only):")
-    for name in NUMERIC_COLUMNS:
-        print(f"  {name:<12} min={minimum[name]}  max={maximum[name]}")
-
-    if bad_examples:
-        print(f"\nFirst {len(bad_examples)} bad rows (line, reason, content):")
-        for line_no, reason, row in bad_examples:
-            print(f"  line {line_no}: {reason} -> {row}")
-
-    print(f"\nElapsed: {elapsed:.1f}s")
+        report(*inspect(args.path))
+    except OSError as error:
+        sys.exit(f"Cannot read {args.path}: {error}")
 
 
 if __name__ == "__main__":

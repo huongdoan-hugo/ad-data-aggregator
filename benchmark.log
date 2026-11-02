@@ -1,23 +1,75 @@
-﻿=== 2026-11-02 17:08:56 | python aggregator.py --input data\ad_data.csv --output results ===
-Elapsed: 64.75s, peak memory: 19.5 MiB
-Campaigns: 50, skipped rows: 0
-=== 2026-11-02 17:12:34 | python aggregator.py --input data\ad_data.csv --output results ===
-Elapsed: 63.84s, peak memory: 19.7 MiB
-Campaigns: 50, skipped rows: 0
-=== 2026-11-02 17:14:30 | python aggregator.py --input data\ad_data.csv --output results ===
-Elapsed: 65.44s, peak memory: 19.8 MiB
-Campaigns: 50, skipped rows: 0
-=== 2026-11-02 17:41:30 | python aggregator.py --input data\ad_data.csv --output results ===
-Campaigns: 50, skipped rows: 0
-=== 2026-11-02 17:56:58 | Python 3.14.10 | Windows-10-10.0.19043-SP0 | 12 CPUs
-    command: aggregator.py --input data/ad_data.csv --output results
-run 1/3: 56.71s, peak 16.6 MiB, exit 0 | Campaigns: 50, skipped rows: 0
-run 2/3: 55.32s, peak 16.6 MiB, exit 0 | Campaigns: 50, skipped rows: 0
-run 3/3: 55.86s, peak 16.7 MiB, exit 0 | Campaigns: 50, skipped rows: 0
-summary: elapsed min 55.32s / median 55.86s / max 56.71s, peak memory max 16.7 MiB
-=== 2026-11-02 18:10:25 | Python 3.14.10 | Windows-10-10.0.19043-SP0 | 12 CPUs
-    command: aggregator.py --input data/ad_data.csv --output results
-run 1/3: 56.90s, peak 16.7 MiB, exit 0 | Campaigns: 50, skipped rows: 0
-run 2/3: 56.13s, peak 16.7 MiB, exit 0 | Campaigns: 50, skipped rows: 0
-run 3/3: 55.43s, peak 16.5 MiB, exit 0 | Campaigns: 50, skipped rows: 0
-summary: elapsed min 55.43s / median 56.13s / max 56.90s, peak memory max 16.7 MiB
+=== 2026-11-02T20:04:07+07:00 ===
+command: C:\Users\admin\AppData\Local\Programs\Python\Python314\python.exe D:\job\aggregator\ad-data-aggregator\aggregator.py --input data/ad_data.csv --output C:\Users\admin\AppData\Local\Temp\tmpbbb4depq
+machine: Windows-10-10.0.19043-SP0 | Intel64 Family 6 Model 165 Stepping 3, GenuineIntel | 12 logical CPUs | 15.9 GB RAM | Python 3.14.10
+exit code: 0
+wall time: 37.34 s
+peak working set (main process only): 21.0 MB
+peak pagefile usage (main process only): 15.3 MB
+aggregator output:
+  Read 26843544 data rows, 50 campaigns.
+  Skipped 0 bad rows {}.
+  Wrote top10_ctr.csv and top10_cpa.csv to C:\Users\admin\AppData\Local\Temp\tmpbbb4depq
+
+=== 2026-11-02T20:04:44+07:00 ===
+command: C:\Users\admin\AppData\Local\Programs\Python\Python314\python.exe D:\job\aggregator\ad-data-aggregator\aggregator.py --input data/ad_data.csv --output C:\Users\admin\AppData\Local\Temp\tmpe2rtx02z
+machine: Windows-10-10.0.19043-SP0 | Intel64 Family 6 Model 165 Stepping 3, GenuineIntel | 12 logical CPUs | 15.9 GB RAM | Python 3.14.10
+exit code: 0
+wall time: 37.55 s
+peak working set (main process only): 21.1 MB
+peak pagefile usage (main process only): 15.7 MB
+aggregator output:
+  Read 26843544 data rows, 50 campaigns.
+  Skipped 0 bad rows {}.
+  Wrote top10_ctr.csv and top10_cpa.csv to C:\Users\admin\AppData\Local\Temp\tmpe2rtx02z
+
+=== 2026-11-02T20:05:21+07:00 ===
+command: C:\Users\admin\AppData\Local\Programs\Python\Python314\python.exe D:\job\aggregator\ad-data-aggregator\aggregator.py --input data/ad_data.csv --output C:\Users\admin\AppData\Local\Temp\tmp4l1lc3kt
+machine: Windows-10-10.0.19043-SP0 | Intel64 Family 6 Model 165 Stepping 3, GenuineIntel | 12 logical CPUs | 15.9 GB RAM | Python 3.14.10
+exit code: 0
+wall time: 36.84 s
+peak working set (main process only): 21.0 MB
+peak pagefile usage (main process only): 15.4 MB
+aggregator output:
+  Read 26843544 data rows, 50 campaigns.
+  Skipped 0 bad rows {}.
+  Wrote top10_ctr.csv and top10_cpa.csv to C:\Users\admin\AppData\Local\Temp\tmp4l1lc3kt
+
+=== 2026-11-02T20:12:50+07:00 ===
+command: C:\Users\admin\AppData\Local\Programs\Python\Python314\python.exe D:\job\aggregator\ad-data-aggregator\aggregator.py --input data/ad_data.csv --output C:\Users\admin\AppData\Local\Temp\tmppjcal9cb
+machine: Windows-10-10.0.19043-SP0 | Intel64 Family 6 Model 165 Stepping 3, GenuineIntel | 12 logical CPUs | 15.9 GB RAM | Python 3.14.10
+exit code: 0
+wall time: 40.49 s
+peak working set (main process only): 21.4 MB
+peak pagefile usage (main process only): 16.0 MB
+peak commit (whole process tree, job object): 75.4 MB
+aggregator output:
+  Read 26843544 data rows, 50 campaigns.
+  Skipped 0 bad rows {}.
+  Wrote top10_ctr.csv and top10_cpa.csv to C:\Users\admin\AppData\Local\Temp\tmppjcal9cb
+
+=== 2026-11-02T20:13:30+07:00 ===
+command: C:\Users\admin\AppData\Local\Programs\Python\Python314\python.exe D:\job\aggregator\ad-data-aggregator\aggregator.py --input data/ad_data.csv --output C:\Users\admin\AppData\Local\Temp\tmpyqqglvnx
+machine: Windows-10-10.0.19043-SP0 | Intel64 Family 6 Model 165 Stepping 3, GenuineIntel | 12 logical CPUs | 15.9 GB RAM | Python 3.14.10
+exit code: 0
+wall time: 40.21 s
+peak working set (main process only): 21.1 MB
+peak pagefile usage (main process only): 15.7 MB
+peak commit (whole process tree, job object): 74.9 MB
+aggregator output:
+  Read 26843544 data rows, 50 campaigns.
+  Skipped 0 bad rows {}.
+  Wrote top10_ctr.csv and top10_cpa.csv to C:\Users\admin\AppData\Local\Temp\tmpyqqglvnx
+
+=== 2026-11-02T20:14:09+07:00 ===
+command: C:\Users\admin\AppData\Local\Programs\Python\Python314\python.exe D:\job\aggregator\ad-data-aggregator\aggregator.py --input data/ad_data.csv --output C:\Users\admin\AppData\Local\Temp\tmp5alamhrk
+machine: Windows-10-10.0.19043-SP0 | Intel64 Family 6 Model 165 Stepping 3, GenuineIntel | 12 logical CPUs | 15.9 GB RAM | Python 3.14.10
+exit code: 0
+wall time: 38.22 s
+peak working set (main process only): 21.1 MB
+peak pagefile usage (main process only): 15.7 MB
+peak commit (whole process tree, job object): 74.7 MB
+aggregator output:
+  Read 26843544 data rows, 50 campaigns.
+  Skipped 0 bad rows {}.
+  Wrote top10_ctr.csv and top10_cpa.csv to C:\Users\admin\AppData\Local\Temp\tmp5alamhrk
+

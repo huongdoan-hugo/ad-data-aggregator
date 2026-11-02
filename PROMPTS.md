@@ -1,184 +1,60 @@
-## 2026-11-02 15:52:52
+# Prompts
 
-Đây là đề bài tuyển dụng của tôi: https://github.com/flinters-vietnam/recruitment/blob/main/fv-sec-001-software-engineer-challenge/README.md. Hãy tóm tắt yêu cầu bắt buộc, sản phẩm phải nộp, tiêu chí chấm có thể có, và liệt kê những chỗ đề chưa rõ mà tôi cần tự quyết định.
+1. từ giờ hay ghi tất cả các prompt của t vào file PROMPTS.md
 
----
+2. Đọc đề bài tại https://github.com/flinters-vietnam/recruitment/blob/main/fv-sec-001-software-engineer-challenge/README.md (nếu không đọc được, tôi sẽ dán nội dung). Chưa viết code. Hãy: tóm tắt yêu cầu bắt buộc, liệt kê sản phẩm phải nộp,  liệt kê tiêu chí chấm,  chép lại hai bảng "Expected output format" để tôi đối chiếu định dạng (tên cột, thứ tự cột, số chữ số thập phân), liệt kê những điểm đề chưa nói rõ mà ta phải tự quyết định (ví dụ impressions = 0, tie-break, giá trị null, dòng lỗi). Trình bày ngắn gọn.
 
-## 2026-11-02 16:05:32
-File data/ad_data.csv nặng khoảng 1GB nên không đọc cả file. Viết cho tôi một script Python nhỏ, đọc streaming, chỉ in tóm tắt: 20 dòng đầu, tổng số dòng, số campaign_id khác nhau, số dòng thiếu cột hoặc sai kiểu, giá trị min/max của từng cột số, và số dòng có impressions = 0 hoặc conversions = 0.
+3. cần cung cấp thêm thông tin gì để làm ?
 
----
+4. 2 bảng theo trong trong link yêu cầu
 
-## 2026-11-02 16:09:14
+5. phân tích đề bài và đưa ra giải pháp, thiết kế tối ưu sao cho thời gian ngắn và chính xác yêu cầu
 
-nhớ ghi  lại các prompt vào file PROMPTS.md
+6. Python thuần, đọc theo khối byte, chia cho nhiều process rồi gộp, tính toán chạy bao nhiêu luồng song song để tối ưu nhất
 
----
+7. phân tích thời gian và peak ram của  từng số lượng luônf
 
-## 2026-11-02 16:14:11
+8. Dữ liệu ở data/ad_data.csv (~1GB), tuyệt đối không đọc cả file hay in nhiều dòng. Viết scripts/inspect_data.py chỉ dùng thư viện chuẩn, đọc streaming một lượt và chỉ in tóm tắt: 5 dòng đầu, tổng số dòng, header có đúng 6 cột không, số campaign_id khác nhau, số dòng lỗi (sai số cột, không phải số, số âm), số chữ số thập phân lớn nhất của spend, có trường nào chứa dấu nháy hoặc xuống dòng trong dấu nháy không, số byte trung bình mỗi dòng, min/max các cột số, số dòng có impressions = 0, số campaign có tổng conversions = 0. Chạy script và báo cáo kết quả.
 
-Kết quả khảo sát dữ liệu: 
+9. Dựa trên đề và kết quả khảo sát dữ liệu, đề xuất thiết kế, chưa viết code
 
-<pasted_content id="ba04">
-Header: ['campaign_id', 'date', 'impressions', 'clicks', 'spend', 'conversions']
+10. viết code 4 luồng song song hỗ trợ cả hai input .zip và .csv, CPA  trống thì loại bỏ , làm dockerfile, CTR và CPA là Fraction và xếp hạng trên giá trị chính xác, chỉ làm tròn khi ghi file theo bảng mẫu của đề (CTR 4 chữ số thập phân, CPA và total_spend 2 chữ số), tie-break theo campaign_id, aggregator.py chỉ dùng thư viện chuẩn. Với mỗi điểm đề chưa rõ, nêu lựa chọn khuyến nghị kèm lý do. Hãy phản biện thiết kế: có rủi ro nào tôi bỏ sót không (spend hơn 2 chữ số thập phân, trường có nháy, file có BOM)? Kết thúc bằng danh sách quyết định để tôi duyệt.
 
-First 20 data rows:
-  ['CMP025', '2025-04-18', '3653', '60', '64.29', '2']
-  ['CMP020', '2025-05-03', '24465', '764', '1394.62', '42']
-  ['CMP019', '2025-02-05', '7214', '236', '135.93', '21']
-  ['CMP046', '2025-06-04', '10631', '201', '298.82', '18']
-  ['CMP044', '2025-03-26', '31942', '964', '744.4', '37']
-  ['CMP041', '2025-02-22', '37210', '984', '1716.18', '32']
-  ['CMP036', '2025-01-04', '7112', '265', '227.31', '22']
-  ['CMP043', '2025-06-10', '1074', '34', '56.89', '1']
-  ['CMP047', '2025-03-25', '47113', '2081', '963.56', '127']
-  ['CMP016', '2025-02-06', '36585', '920', '232.62', '35']
-  ['CMP033', '2025-05-06', '8147', '151', '98.61', '3']
-  ['CMP022', '2025-05-19', '14317', '692', '862.27', '43']
-  ['CMP029', '2025-01-24', '40078', '1639', '1151.22', '52']
-  ['CMP012', '2025-02-18', '13237', '85', '166.98', '2']
-  ['CMP005', '2025-01-23', '45480', '1777', '3137.94', '165']
-  ['CMP006', '2025-06-29', '36428', '1302', '2202.91', '74']
-  ['CMP034', '2025-03-02', '15103', '683', '833.68', '65']
-  ['CMP038', '2025-03-12', '30528', '829', '1092.85', '60']
-  ['CMP023', '2025-01-22', '22254', '724', '741.55', '48']
-  ['CMP013', '2025-03-04', '2062', '78', '25.16', '2']
+11. CPA trống thì vẫn giữ giá trị không loại bỏ, sử dụng pytest, chưa viết code
 
-Total data rows:           26,843,544
-Valid rows:                26,843,544
-Rows with wrong # columns: 0
-Rows with bad values:      0
-Distinct campaign_id:      50
-Rows with conversions = 0: 326,361
+12. Tạo CLAUDE.md dưới 60 dòng gồm: mục tiêu, cấu trúc thư mục, lệnh (chạy, test, verify, benchmark), và các quy tắc cứng: không đọc data/ad_data.csv; không sửa results/ bằng tay; aggregator.py chỉ dùng thư viện chuẩn; không dead code ; tên rõ nghĩa; mỗi thay đổi phải chạy pytest; môi trường là Windows PowerShell; diff nhỏ, không refactor ngoài phạm vi; hỏi tôi trước khi đổi bất kỳ quyết định thiết kế nào đã duyệt. Ghi các quyết định thiết kế đã duyệt vào một mục ngắn.
 
-Numeric ranges (valid rows only):
-  impressions  min=1000  max=50000
-  clicks       min=5  max=2499
-  spend        min=0.5  max=4976.81
-  conversions  min=0  max=249
+13. Theo các quyết định đã duyệt, viết tests/test_aggregator.py trước khi viết code (pytest, thêm pytest.ini với pythonpath = .). Test cần có: cộng dồn nhiều dòng cùng campaign; spend cộng không sai số; parse_cents hợp lệ và các giá trị bị từ chối; dòng lỗi các loại :sai số cột, không phải số, số âm, spend hơn 2 chữ số, nan, inf được bỏ qua và đếm; dòng trống; header sai; CTR và CPA chính xác, impressions = 0 và conversions = 0 cho giá trị rỗng; xếp hạng giảm/tăng, loại campaign thiếu chỉ số, tối đa 10, tie-break, và một ca hai giá trị mà float không phân biệt được; định dạng làm tròn half-up; ghi file đúng header và định dạng; chạy từ đầu đến cuối. Dùng CSV mẫu nhỏ trong tmp_path. Chưa viết aggregator.py. Cho tôi danh sách test và giải thích mỗi nhóm kiểm tra điều gì.
 
-Elapsed: 78.1s
-</pasted_content id="ba04">
+14. A
 
-Tôi dự định đọc streaming bằng csv.reader, gom vào dict theo campaign_id, rồi chọn top 10. Hãy phản biện thiết kế này: edge case nào tôi bỏ sót, float hay Decimal cho spend, cách tie-break khi xếp hạng, và cách xử lý dòng lỗi. Chỉ nêu ý kiến, chưa viết code.
+15. Viết aggregator.py (một tiến trình, streaming) để mọi test trên đều qua, theo CLAUDE.md. CLI: --input và --output. Hàm nhỏ, tên rõ nghĩa, không dead code, không comment thừa. Chạy pytest -q và báo kết quả. Chưa tối ưu, chưa làm song song.
 
----
+16. Viết scripts/verify_with_duckdb.py độc lập với aggregator.py: dùng DuckDB tính lại tổng theo campaign từ data/ad_data.csv và so sánh với results/top10_ctr.csv và results/top10_cpa.csv (thứ tự campaign, các cột số nguyên, total_spend, CTR và CPA trong dung sai làm tròn). In MATCH và thoát 0 nếu khớp, ngược lại in từng chỗ lệch và thoát 1. Chỉ script này được dùng DuckDB. Chưa chạy trên file 1GB.
 
-## 2026-11-02 16:16:48
+17. Chạy aggregator.py trên data/ad_data.csv, xuất vào results/, rồi chạy scripts/verify_with_duckdb.py. Báo: dòng tóm tắt, thời gian, MATCH hay lệch, và hiển thị hai file kết quả dạng bảng Markdown để tôi đối chiếu với bảng mẫu của đề. Nếu lệch, phân tích nguyên nhân, chưa sửa.
 
-Dựa trên các quyết định thiết kế ở trên, soạn giúp tôi CLAUDE.md ngắn gọn cho repo này: mục tiêu dự án, stack, lệnh chạy và test, quy ước code (tên rõ nghĩa, không dead code, không comment thừa), và những việc không được làm mà không hỏi tôi.
+18. .
 
----
+19. Viết scripts/benchmark.py chỉ dùng thư viện chuẩn, chạy được trên Windows: chạy aggregator trong một tiến trình riêng, đo thời gian và peak memory (dùng ctypes), nối kết quả vào benchmark.log kèm thời điểm, tham số và cấu hình máy. aggregator.py không được import hay phụ thuộc script này. Ghi chú rõ trong script và README giới hạn: khi chạy nhiều worker, cách đo chỉ thấy tiến trình chính.
 
-## 2026-11-02 16:26:47
+20. Chuyển aggregator.py sang xử lý song song cố định 4 worker . Chia phần dữ liệu sau header thành WORKERS*4 khoảng byte liên tiếp; mỗi khoảng sở hữu mọi dòng BẮT ĐẦU trong khoảng đó ,lùi 1 byte rồi bỏ nốt phần dòng dở để tìm đầu dòng. Mỗi worker gom riêng bằng cent, tiến trình chính kiểm tra header và gộp kết quả. Phải chạy đúng trên Windows (spawn, hàm worker ở cấp module). Giữ nguyên hành vi và định dạng đầu ra; mọi test cũ vẫn phải qua. Thêm test: chia khoảng không mất hay trùng dòng với nhiều số khoảng khác nhau (gọi trực tiếp hàm xử lý một khoảng, không cần Pool), có CRLF, file thiếu newline cuối, file chỉ có header; và một test chạy qua Pool 4 worker cho kết quả bằng kết quả mong đợi. Chạy pytest -q, chưa chạy trên file 1GB.
 
-Đây là code của tôi: aggregator.py. Hãy review: lỗi logic, edge case chưa xử lý, chỗ nào tốn bộ nhớ, đặt tên và cấu trúc có chỗ nào chưa tốt. Chưa sửa hộ tôi, chỉ chỉ ra vấn đề và giải thích vì sao.
+21. Chạy scripts/benchmark.py trên data/ad_data.csv 3 lần và ghi vào benchmark.log. Sau đó xóa results/*.csv, chạy aggregator.py để sinh lại kết quả, rồi chạy scripts/verify_with_duckdb.py và báo MATCH hay lệch. Lập bảng so sánh trung vị thời gian của lần đo mốc (một tiến trình) và 4 worker. Nếu lệch, phân tích nguyên nhân, chưa sửa.
 
----
+22. commit lại các file cần thiết trừ ad_data.csv, .claude
 
-## 2026-11-02 16:28:41
+23. Review aggregator.py, scripts/ và tests/ trước khi nộp: dead code, comment thừa, tên chưa rõ, xử lý lỗi thiếu, test yếu, edge case chưa test, chỗ nào RAM tăng theo kích thước file. Chỉ liệt kê theo mức độ quan trọng, chưa sửa.
 
-Giải thích cho tôi cách hoạt động của đoạn này, và gợi ý hướng làm, đừng viết hộ.
+24. sửa lại mức cao
 
----
+25. Chạy scripts/benchmark.py trên data/ad_data.csv 3 lần và ghi vào benchmark.log. Sau đó xóa results/*.csv, chạy aggregator.py để sinh lại kết quả
 
-## 2026-11-02 16:32:35
+26. sửa cả lỗi mức trung bình và thấp
 
-Giúp tôi thiết kế bộ test cho aggregator. Liệt kê các test case cần có (dòng hợp lệ, conversions = 0, impressions = 0, dòng lỗi, hòa điểm, CSV rỗng, file không tồn tại), kèm CSV mẫu nhỏ và kết quả mong đợi tính tay. Tôi sẽ tự viết code test.
+27. Soạn README.md từ aggregator.py, scripts/, tests/ và benchmark.log: bài toán, cài đặt, cách chạy, cách chạy test, thư viện, thời gian và peak memory trên file 1GB, mục Quyết định thiết kế
 
----
-
-## 2026-11-02 16:42:54
-
-Viết một script riêng (không nằm trong sản phẩm chính) dùng DuckDB để tính cùng kết quả top 10 CTR và top 10 CPA từ ad_data.csv, rồi so sánh với output của aggregator.py và báo lệch ở đâu.
-
----
-
-## 2026-11-02 17:00:25
-
-Giúp tôi thêm phần đo thời gian chạy và peak memory (dùng psutil, vì tôi chạy Windows) vào cuối chương trình, in ra một dòng. Cho tôi lệnh PowerShell để chạy trên file 1GB và ghi lại kết quả vào benchmark.log.
-
----
-
-## 2026-11-02 17:14:56
-
-Đây là kết quả đo: Elapsed: 64.75s, peak memory: 19.5 MiB
-Campaigns: 50, skipped rows: 0. Điểm nghẽn nhiều khả năng ở đâu, tôi nên thử tối ưu theo thứ tự nào?
-
----
-
-## 2026-11-02 17:16:51
-
-aggregator.py hiện đang import psutil để đo peak memory. Tôi muốn aggregator.py chỉ dùng thư viện chuẩn. Hãy đề xuất cách tách phần đo thời gian và peak memory sang một script riêng benchmark.py (chạy trên Windows, mỗi lần đo trong một tiến trình riêng), và cách ghi kết quả vào benchmark.log. Chỉ nêu thiết kế và đoạn code cần thay đổi, tôi sẽ tự sửa.
-
----
-
-## 2026-11-02 17:25:52
-
-Cho tôi xem results/top10_ctr.csv và results/top10_cpa.csv dưới dạng bảng bằng PowerShell (Import-Csv | Format-Table -AutoSize). Chỉ đọc, không ghi hay sửa file nào, và không đọc data/ad_data.csv. Kiểm tra giúp tôi mỗi file có đúng 7 cột theo thứ tự campaign_id, total_impressions, total_clicks, total_spend, total_conversions, CTR, CPA không; có đúng 10 dòng không; CTR có 4 chữ số thập phân, CPA và total_spend có 2 chữ số thập phân không. Báo cáo ngắn gọn.
-
----
-
-## 2026-11-02 17:26:19
-
-Cập nhật @CLAUDE.md cho khớp trạng thái repo hiện tại: aggregator.py chỉ dùng thư viện chuẩn, mọi phần đo đạc nằm ngoài sản phẩm (benchmark.py), thêm lệnh benchmark và lệnh verify DuckDB vào mục Commands, ghi rõ quy ước cộng spend theo cent, xếp hạng bằng Fraction, chỉ làm tròn khi ghi file. Giữ file ngắn gọn. Chỉ sửa CLAUDE.md.
-
----
-
-## 2026-11-02 17:27:19
-
-Soạn README.md dựa trên @aggregator.py, @benchmark.py, @tests/ và @benchmark.log. Cần có: mô tả bài toán, cài đặt, cách chạy, cách chạy test, thư viện sử dụng, thời gian xử lý và peak memory trên file 1GB (lấy từ benchmark.log, nêu cấu hình máy), và phần Quyết định thiết kế: streaming, cộng spend theo cent, xếp hạng bằng Fraction rồi mới làm tròn, định dạng 4 và 2 chữ số thập phân, tie-break theo campaign_id, xử lý impressions = 0 và conversions = 0, xử lý dòng lỗi. Không bịa số liệu, chỗ nào chưa có thì để TODO. Không đọc data/ad_data.csv.
-
----
-
-## 2026-11-02 17:29:40
-
-Review @aggregator.py và @tests/test_aggregator.py trước khi nộp bài. Tìm dead code, comment thừa, đặt tên chưa rõ, chỗ xử lý lỗi còn thiếu, test chưa kiểm tra đúng điều nó nói, và edge case chưa có test. Chỉ liệt kê vấn đề theo mức độ quan trọng, chưa sửa gì.
-
----
-
-## 2026-11-02 17:36:18
-
-Hãy sửa các mục sau: Mục 1–3, Mục 4,  Mục 8–9. Mỗi mục sửa xong thì chạy pytest -q và báo kết quả trước khi sang mục tiếp theo. Không đổi hành vi hay định dạng đầu ra của aggregator.py, không sửa results/ bằng tay, không đọc data/ad_data.csv, không sửa PROMPTS.md. Diff nhỏ nhất có thể, không refactor ngoài phạm vi các mục đã chọn.
-
----
-
-
-## 2026-11-02 17:46:44
-
-Đối chiếu repo này với yêu cầu nộp bài: mã nguồn; results/top10_ctr.csv và results/top10_cpa.csv đúng cột và định dạng; README có hướng dẫn cài đặt, cách chạy, thư viện, thời gian xử lý, peak memory; có test; PROMPTS.md ở thư mục gốc; .gitignore loại data/. Báo mục nào đạt, mục nào thiếu hoặc sai. Chỉ kiểm tra, chưa sửa, và không đọc data/ad_data.csv.
-
----
-
-## 2026-11-02 17:53:06
-
-tạo benchmark.py
-
----
-
-## 2026-11-02 17:56:51
-
-Sửa README cho đúng code hiện tại, dùng số đo mới. Chạy lại để tạo results/, rồi kiểm tra bằng DuckDB.
-
----
-
-## 2026-11-02 18:10:11
-
-Sửa README cho đúng code hiện tại, dùng số đo mới. Chạy lại để tạo results/, rồi kiểm tra bằng DuckDB.
-
----
-
-## 2026-11-02 18:13:25
-
-push code lên nhanh main
-
----
-
-## 2026-11-02 18:16:44
-
-Huong Doan <huongdd99@gmail.com>
-
----
+28. chạy test lại 1 lần cuối , đối chiếu kết quả
 
 ## 2026-11-02 20:30:36
 

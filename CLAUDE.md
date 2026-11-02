@@ -1,46 +1,45 @@
-# Ad Performance Aggregator
+# CLAUDE.md
 
-Recruitment challenge FV-SEC001 (Flinters Vietnam). CLI that streams `data/ad_data.csv` (~1GB, 26.8M rows, 50 campaigns) and writes `top10_ctr.csv` and `top10_cpa.csv`. Graded on exact results, clean code, error handling, memory efficiency, tests and documented decisions.
+## Mục tiêu
+CLI Python tổng hợp `ad_data.csv` (~1GB, ~26,8 triệu dòng, 50 campaign) theo `campaign_id`,
+ghi `top10_ctr.csv` (CTR cao nhất) và `top10_cpa.csv` (CPA thấp nhất). Đề: FV-SEC001 Ad Performance
+Aggregator. Chấm theo: đúng kết quả, code sạch, xử lý lỗi, hiệu năng/RAM, test, README ghi quyết định.
 
-## Stack
-- Python 3.14. `aggregator.py` (the product) uses the standard library only.
-- Measurement and verification live outside the product:
-  - `benchmark.py`: elapsed time and peak memory, standard library + `ctypes` (Windows), each run in a separate process.
-  - `scripts/verify_with_duckdb.py`: recomputes the results independently; needs `duckdb` (dev only).
-- `pytest` for tests.
+## Cấu trúc
+- `aggregator.py` — toàn bộ logic và CLI (chỉ thư viện chuẩn)
+- `tests/test_aggregator.py` — pytest; `pytest.ini`, `requirements-dev.txt`
+- `scripts/inspect_data.py` — khảo sát dữ liệu, chỉ in tóm tắt
+- `results/` — output sinh ra từ chương trình; `data/` — input (git bỏ qua)
+- `Dockerfile`, `README.md`, `PROMPTS.md` (prompt của người dùng, ghi nguyên văn)
 
-## Commands
-- Run: `python aggregator.py --input data/ad_data.csv --output results/`
+## Lệnh (Windows PowerShell)
+- Chạy: `python aggregator.py --input data\ad_data.csv --output results` (nhận cả `.zip`)
 - Test: `python -m pytest`
-- Benchmark (Windows, appends to `benchmark.log`): `python benchmark.py --runs 3 --log benchmark.log -- --input data\ad_data.csv --output results`
-- Verify against DuckDB: `python scripts/verify_with_duckdb.py --input data/ad_data.csv --results results/`
-- Survey the dataset: `python scripts/inspect_data.py [path] [--head N]`
+- Khảo sát dữ liệu: `python scripts\inspect_data.py`
+- Benchmark: `python scripts\benchmark.py --input data\ad_data.csv` (ghi vào `benchmark.log`; đo cả cây tiến trình bằng job object)
+- Verify: `python scriptserify_with_duckdb.py` (so `results/` với phép gộp độc lập bằng DuckDB;
+  cần `pip install -r requirements-dev.txt`). In MATCH hoặc từng chỗ lệch.
 
-## Design decisions (do not change without asking)
-- Stream rows; never load the whole file. Aggregate per campaign into `[impressions, clicks, spend_cents, conversions]`.
-- Money: parse each `spend` into integer cents (reject anything that is not a whole number of cents) and sum integers. Never accumulate floats.
-- Ranking: CTR = `Fraction(clicks, impressions)`, CPA = `Fraction(spend_cents, 100 * conversions)`. Rank on these exact values, never on floats or rounded values. Tie-break: `campaign_id` ascending.
-- Rounding happens only when writing the CSV: round half up, CTR 4 decimals, spend and CPA 2 decimals. Never use built-in `round()` or floats for output.
-- Do not dedupe by `(campaign_id, date)`: each row is an individual record and must be summed.
-- `total_conversions = 0` means CPA is empty and the campaign is excluded from `top10_cpa`. `total_impressions = 0` means CTR is empty and the campaign is excluded from `top10_ctr`.
-- Output columns: `campaign_id,total_impressions,total_clicks,total_spend,total_conversions,CTR,CPA`.
-- Header columns are located by name; open input as `utf-8-sig`.
-- Bad rows (wrong column count, empty id, non-numeric, negative, non-finite, bad date) are validated as a whole, skipped, counted by reason and reported on stderr. `--strict` stops at the first bad row.
-- Fatal errors (missing file, missing header columns, no valid rows) exit non-zero with a clear message.
+## Quy tắc cứng
+1. Không mở, đọc, `head`, in nội dung `data/ad_data.csv`. Chỉ chương trình trong repo được stream nó.
+2. Không sửa `results/` bằng tay; chỉ sinh lại bằng cách chạy `aggregator.py`.
+3. `aggregator.py` chỉ dùng thư viện chuẩn (pytest chỉ cho test).
+4. Không dead code, không code bị comment. Tên biến/hàm rõ nghĩa.
+5. Mỗi thay đổi phải chạy `python -m pytest` và báo kết quả thật.
+6. Môi trường là Windows PowerShell: dùng cú pháp PowerShell, đường dẫn `\`.
+7. Diff nhỏ, không refactor ngoài phạm vi yêu cầu.
+8. Hỏi người dùng trước khi đổi bất kỳ quyết định thiết kế nào bên dưới.
+9. Không tự ghi prompt vào `PROMPTS.md`: hook `.claude/hooks/log_prompt.py` đã tự ghi mỗi prompt.
 
-## Code conventions
-- Meaningful names; small functions with one job.
-- No dead code, no commented-out code, no debug prints.
-- Comments only for non-obvious reasons (why, not what).
-- Logs and diagnostics go to stderr; stdout and output CSVs stay clean.
-- Every behaviour change comes with a test. Run `python -m pytest` before saying a task is done.
-- Non-obvious decisions go in the README "Decisions" section.
-
-## Ask before doing any of these
-- Adding a dependency, or any non-standard-library import to `aggregator.py`.
-- Putting timing or memory measurement code back into `aggregator.py`.
-- Changing a design decision above, the output format, rounding or tie-break rules.
-- Committing, pushing, creating branches or rewriting git history.
-- Deleting, moving or modifying anything in `data/`, or committing it.
-- Editing `PROMPTS.md` (a hook appends prompts verbatim; the challenge requires them unedited) or anything under `.claude/`.
-- Overwriting the submitted `top10_ctr.csv` / `top10_cpa.csv` results.
+## Quyết định thiết kế đã duyệt
+- 4 worker cố định (process), WORKERS*4 khoảng byte; khoảng sở hữu mọi dòng BẮT ĐẦU trong nó;
+  hỗ trợ `.csv` và `.zip` (giải nén ra thư mục tạm).
+- CTR = tổng clicks / tổng impressions, CPA = tổng spend / tổng conversions, kiểu `Fraction`.
+- Xếp hạng trên giá trị chính xác, tie-break theo `campaign_id` tăng dần; chỉ làm tròn khi ghi
+  (half up): CTR 4 chữ số, CPA và total_spend 2 chữ số.
+- Spend đọc thành số nguyên 1e-6 USD (tối đa 6 chữ số thập phân), không dùng float.
+- impressions = 0 hoặc conversions = 0: giữ campaign, ô CTR/CPA trống, chỉ bỏ khỏi bảng xếp hạng
+  của chỉ số đó.
+- Dòng lỗi (sai số cột, không phải số, số âm, id rỗng, nháy hỏng) bị bỏ qua và đếm; header sai hoặc
+  dòng dài hơn 64 KiB thì dừng (exit 1). `campaign_id` được cắt khoảng trắng hai đầu, số thì không.
+- Chấp nhận BOM UTF-8, CRLF, trường có nháy (trừ khi ranh giới khoảng cắt giữa trường nhiều dòng), cột đổi thứ tự.

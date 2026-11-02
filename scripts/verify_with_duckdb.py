@@ -1,204 +1,184 @@
-"""Recompute top-10 CTR/CPA with DuckDB and diff them against aggregator.py output.
+"""Recompute the top 10 tables with DuckDB and compare them with the files in results/.
 
-Verification tool only, not part of the product. Requires: pip install duckdb
+Independent of aggregator.py. Totals come from DuckDB (exact DECIMAL sums); ranking uses
+exact Fractions with ties broken by campaign_id. Prints MATCH and exits 0 when the result
+files agree, otherwise prints every difference and exits 1.
 
-Usage: python scripts/verify_with_duckdb.py [--input data/ad_data.csv] [--results results/]
-
-Reference rules (same as CLAUDE.md): spend summed exactly, ranking on exact values,
-ties broken by campaign_id ascending, ROUND_HALF_UP to 4 dp for CTR and 2 dp for spend/CPA.
+DuckDB fails on rows the aggregator would skip (non-numeric values, more than 6 spend
+decimals), so this check is meant for clean input; it then reports a DuckDB error and exits 1.
 """
+
 import argparse
 import csv
+import os
 import sys
-import time
-from decimal import ROUND_HALF_UP, Decimal, localcontext
 from fractions import Fraction
-from pathlib import Path
 
-import duckdb
 
-OUTPUT_HEADER = [
-    "campaign_id", "total_impressions", "total_clicks",
-    "total_spend", "total_conversions", "CTR", "CPA",
-]
-DECIMAL_PLACES = {"total_spend": 2, "CTR": 4, "CPA": 2}
+try:
+    import duckdb
+except ImportError:
+    sys.exit("error: this script needs DuckDB (pip install duckdb)")
+
 TOP_N = 10
-
-# Rows are cast as text first so invalid rows are counted instead of aborting the scan.
-QUERY = """
-WITH raw AS (
-    SELECT * FROM read_csv({path}, header = true, all_varchar = true)
-),
-typed AS (
-    SELECT
-        trim(campaign_id) AS campaign_id,
-        TRY_CAST(trim(date) AS DATE) AS day,
-        TRY_CAST(trim(impressions) AS BIGINT) AS impressions,
-        TRY_CAST(trim(clicks) AS BIGINT) AS clicks,
-        CASE WHEN regexp_full_match(trim(spend), '[0-9]+(\\.[0-9]{{1,2}})?')
-             THEN CAST(trim(spend) AS DECIMAL(38, 2)) END AS spend,
-        TRY_CAST(trim(conversions) AS BIGINT) AS conversions
-    FROM raw
-),
-flagged AS (
-    SELECT *,
-        campaign_id IS NOT NULL AND campaign_id <> ''
-        AND day IS NOT NULL AND spend IS NOT NULL
-        AND impressions >= 0 AND clicks >= 0 AND conversions >= 0 AS is_valid
-    FROM typed
-)
-SELECT
-    campaign_id,
-    SUM(impressions) AS impressions,
-    SUM(clicks) AS clicks,
-    SUM(spend) AS spend,
-    SUM(conversions) AS conversions,
-    COUNT(*) AS row_count
-FROM flagged
-WHERE is_valid
-GROUP BY campaign_id
-UNION ALL
-SELECT NULL, NULL, NULL, NULL, NULL, COUNT(*) FROM flagged WHERE NOT is_valid
+EXPECTED_HEADER = [
+    "campaign_id",
+    "total_impressions",
+    "total_clicks",
+    "total_spend",
+    "total_conversions",
+    "CTR",
+    "CPA",
+]
+SPEND_PLACES = 2
+CTR_PLACES = 4
+CPA_PLACES = 2
+TOTALS_QUERY = """
+    SELECT campaign_id,
+           sum(impressions)::HUGEINT,
+           sum(clicks)::HUGEINT,
+           sum(spend)::DECIMAL(38, 6),
+           sum(conversions)::HUGEINT
+    FROM read_csv(
+        ?,
+        header = true,
+        types = {
+            'campaign_id': 'VARCHAR',
+            'impressions': 'BIGINT',
+            'clicks': 'BIGINT',
+            'spend': 'DECIMAL(18, 6)',
+            'conversions': 'BIGINT'
+        }
+    )
+    GROUP BY campaign_id
 """
 
 
-def parse_args():
-    parser = argparse.ArgumentParser(description="Cross-check aggregator.py results with DuckDB.")
-    parser.add_argument("--input", type=Path, default=Path("data/ad_data.csv"), help="Source CSV")
-    parser.add_argument("--results", type=Path, default=Path("results"),
-                        help="Directory holding top10_ctr.csv and top10_cpa.csv from aggregator.py")
-    return parser.parse_args()
+def load_expected_campaigns(input_path):
+    """Return one dict per campaign with exact totals and, when defined, exact CTR and CPA."""
+    campaigns = []
+    for campaign_id, impressions, clicks, spend, conversions in (
+        duckdb.connect().execute(TOTALS_QUERY, [input_path]).fetchall()
+    ):
+        spend = Fraction(str(spend))
+        campaigns.append(
+            {
+                "campaign_id": campaign_id,
+                "impressions": int(impressions),
+                "clicks": int(clicks),
+                "spend": spend,
+                "conversions": int(conversions),
+                "ctr": Fraction(int(clicks), int(impressions)) if impressions else None,
+                "cpa": spend / int(conversions) if conversions else None,
+            }
+        )
+    return campaigns
 
 
-def sql_string(value):
-    return "'" + str(value).replace("'", "''") + "'"
+def expected_rankings(campaigns):
+    with_ctr = [campaign for campaign in campaigns if campaign["ctr"] is not None]
+    with_cpa = [campaign for campaign in campaigns if campaign["cpa"] is not None]
+    top_ctr = sorted(with_ctr, key=lambda c: (-c["ctr"], c["campaign_id"]))[:TOP_N]
+    top_cpa = sorted(with_cpa, key=lambda c: (c["cpa"], c["campaign_id"]))[:TOP_N]
+    return top_ctr, top_cpa
 
 
-def load_totals(path):
-    """Return ({campaign_id: (impressions, clicks, spend_cents, conversions)}, valid_rows, invalid_rows)."""
-    rows = duckdb.sql(QUERY.format(path=sql_string(path.as_posix()))).fetchall()
-    totals = {}
-    valid_rows = 0
-    invalid_rows = 0
-    for campaign_id, impressions, clicks, spend, conversions, row_count in rows:
-        if campaign_id is None:
-            invalid_rows += row_count
-            continue
-        totals[campaign_id] = (impressions, clicks, int(spend * 100), conversions)
-        valid_rows += row_count
-    return totals, valid_rows, invalid_rows
+def read_result_file(path):
+    with open(path, newline="", encoding="utf-8") as handle:
+        return list(csv.reader(handle))
 
 
-def round_half_up(value, places):
-    with localcontext() as context:
-        context.prec = 50
-        exact = Decimal(value.numerator) / Decimal(value.denominator)
-        return str(exact.quantize(Decimal(1).scaleb(-places), rounding=ROUND_HALF_UP))
-
-
-def to_output_row(campaign_id, impressions, clicks, spend_cents, conversions):
-    ctr = Fraction(clicks, impressions) if impressions else None
-    cpa = Fraction(spend_cents, conversions * 100) if conversions else None
-    return {
-        "campaign_id": campaign_id,
-        "total_impressions": str(impressions),
-        "total_clicks": str(clicks),
-        "total_spend": round_half_up(Fraction(spend_cents, 100), 2),
-        "total_conversions": str(conversions),
-        "CTR": "" if ctr is None else round_half_up(ctr, 4),
-        "CPA": "" if cpa is None else round_half_up(cpa, 2),
-    }, ctr, cpa
-
-
-def expected_tops(totals):
-    scored = [to_output_row(campaign_id, *values) for campaign_id, values in totals.items()]
-    by_ctr = sorted((s for s in scored if s[1] is not None), key=lambda s: (-s[1], s[0]["campaign_id"]))
-    by_cpa = sorted((s for s in scored if s[2] is not None), key=lambda s: (s[2], s[0]["campaign_id"]))
-    return [s[0] for s in by_ctr[:TOP_N]], [s[0] for s in by_cpa[:TOP_N]]
-
-
-def read_actual(path):
-    with path.open(newline="", encoding="utf-8-sig") as csv_file:
-        reader = csv.DictReader(csv_file)
-        header = [name.strip() for name in reader.fieldnames or []]
-        rows = [{key.strip(): (value or "").strip() for key, value in row.items() if key} for row in reader]
-    return header, rows
-
-
-def classify_cell(column, expected, actual):
-    """Describe how a mismatching cell differs: 'format only' when rounding actual gives expected."""
-    places = DECIMAL_PLACES.get(column)
-    if places is None or not expected or not actual:
-        return "value"
+def differences_in_value(label, actual_text, expected, places):
+    """Compare a written decimal with the exact value; it must be the value rounded half up."""
+    if expected is None:
+        return [] if actual_text == "" else [f"{label}: expected blank, found {actual_text!r}"]
     try:
-        actual_number = Decimal(actual)
-    except ArithmeticError:
-        return "not a number"
-    rounded = actual_number.quantize(Decimal(1).scaleb(-places), rounding=ROUND_HALF_UP)
-    if str(rounded) == expected:
-        return "format only (rounds to expected)"
-    return f"value (diff {actual_number - Decimal(expected):+})"
+        actual = Fraction(actual_text)
+    except (ValueError, ZeroDivisionError):
+        return [f"{label}: expected about {float(expected):.{places + 2}f}, found {actual_text!r}"]
+    half_unit = Fraction(1, 2 * 10**places)
+    if not -half_unit < actual - expected <= half_unit:
+        return [
+            f"{label}: expected {float(expected):.{places + 2}f} "
+            f"(rounded half up to {places} places), found {actual_text}"
+        ]
+    return []
 
 
-def compare(name, expected_rows, actual_header, actual_rows):
-    problems = []
-    if actual_header != OUTPUT_HEADER:
-        problems.append(f"header differs: expected {OUTPUT_HEADER}, got {actual_header}")
-    if len(actual_rows) != len(expected_rows):
-        problems.append(f"row count differs: expected {len(expected_rows)}, got {len(actual_rows)}")
-
-    expected_ids = [row["campaign_id"] for row in expected_rows]
-    actual_ids = [row.get("campaign_id", "") for row in actual_rows]
-    if expected_ids != actual_ids:
-        problems.append(f"campaign order differs:\n      expected {expected_ids}\n      actual   {actual_ids}")
-        missing = [cid for cid in expected_ids if cid not in actual_ids]
-        extra = [cid for cid in actual_ids if cid not in expected_ids]
-        if missing:
-            problems.append(f"missing campaigns: {missing}")
-        if extra:
-            problems.append(f"unexpected campaigns: {extra}")
-
-    actual_by_id = {row.get("campaign_id"): row for row in actual_rows}
-    for expected in expected_rows:
-        actual = actual_by_id.get(expected["campaign_id"])
-        if actual is None:
-            continue
-        for column in OUTPUT_HEADER[1:]:
-            actual_value = actual.get(column, "")
-            if actual_value != expected[column]:
-                problems.append(
-                    f"{expected['campaign_id']}.{column}: expected {expected[column]!r}, "
-                    f"got {actual_value!r} -> {classify_cell(column, expected[column], actual_value)}"
-                )
-
-    print(f"\n== {name} ==")
-    if not problems:
-        print("  identical")
-    for problem in problems:
-        print(f"  - {problem}")
-    return not problems
+def differences_in_row(position, row, campaign):
+    prefix = f"row {position} ({campaign['campaign_id']})"
+    if len(row) != len(EXPECTED_HEADER):
+        return [f"{prefix}: expected {len(EXPECTED_HEADER)} columns, found {len(row)}"]
+    found = dict(zip(EXPECTED_HEADER, row))
+    differences = []
+    if found["campaign_id"] != campaign["campaign_id"]:
+        differences.append(
+            f"row {position}: expected campaign {campaign['campaign_id']}, "
+            f"found {found['campaign_id']}"
+        )
+    for column, key in (
+        ("total_impressions", "impressions"),
+        ("total_clicks", "clicks"),
+        ("total_conversions", "conversions"),
+    ):
+        if found[column] != str(campaign[key]):
+            differences.append(
+                f"{prefix} {column}: expected {campaign[key]}, found {found[column]}"
+            )
+    differences += differences_in_value(
+        f"{prefix} total_spend", found["total_spend"], campaign["spend"], SPEND_PLACES
+    )
+    differences += differences_in_value(f"{prefix} CTR", found["CTR"], campaign["ctr"], CTR_PLACES)
+    differences += differences_in_value(f"{prefix} CPA", found["CPA"], campaign["cpa"], CPA_PLACES)
+    return differences
 
 
-def main():
-    args = parse_args()
-    if not args.input.is_file():
-        sys.exit(f"Input file not found: {args.input}")
-    result_files = {name: args.results / name for name in ("top10_ctr.csv", "top10_cpa.csv")}
-    missing = [str(path) for path in result_files.values() if not path.is_file()]
-    if missing:
-        sys.exit(f"Aggregator output not found: {missing}. Run aggregator.py first.")
+def differences_in_file(name, table, expected_campaigns):
+    if not table or table[0] != EXPECTED_HEADER:
+        found = table[0] if table else "no header"
+        return [f"{name}: header is {found}, expected {EXPECTED_HEADER}"]
+    rows = table[1:]
+    differences = []
+    if len(rows) != len(expected_campaigns):
+        differences.append(
+            f"{name}: expected {len(expected_campaigns)} rows, found {len(rows)}"
+        )
+    for position, (row, campaign) in enumerate(zip(rows, expected_campaigns), start=1):
+        differences += [f"{name} {text}" for text in differences_in_row(position, row, campaign)]
+    return differences
 
-    started = time.perf_counter()
-    totals, valid_rows, invalid_rows = load_totals(args.input)
-    print(f"DuckDB scan: {time.perf_counter() - started:.1f}s, "
-          f"{valid_rows:,} valid rows, {invalid_rows:,} invalid rows, {len(totals)} campaigns")
 
-    expected_ctr, expected_cpa = expected_tops(totals)
-    ctr_ok = compare("top10_ctr.csv", expected_ctr, *read_actual(result_files["top10_ctr.csv"]))
-    cpa_ok = compare("top10_cpa.csv", expected_cpa, *read_actual(result_files["top10_cpa.csv"]))
+def parse_args(argv):
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--input", default=os.path.join("data", "ad_data.csv"))
+    parser.add_argument("--results", default="results")
+    return parser.parse_args(argv)
 
-    print("\nResult:", "MATCH" if ctr_ok and cpa_ok else "DIFFERENCES FOUND")
-    return 0 if ctr_ok and cpa_ok else 1
+
+def main(argv=None):
+    args = parse_args(argv)
+    paths = {
+        "top10_ctr.csv": os.path.join(args.results, "top10_ctr.csv"),
+        "top10_cpa.csv": os.path.join(args.results, "top10_cpa.csv"),
+    }
+    for path in [args.input, *paths.values()]:
+        if not os.path.isfile(path):
+            print(f"error: file not found: {path}", file=sys.stderr)
+            return 1
+    try:
+        campaigns = load_expected_campaigns(args.input)
+    except duckdb.Error as error:
+        print(f"error: DuckDB could not aggregate {args.input}: {error}", file=sys.stderr)
+        return 1
+    top_ctr, top_cpa = expected_rankings(campaigns)
+    differences = differences_in_file(
+        "top10_ctr.csv", read_result_file(paths["top10_ctr.csv"]), top_ctr
+    ) + differences_in_file("top10_cpa.csv", read_result_file(paths["top10_cpa.csv"]), top_cpa)
+    if differences:
+        print("\n".join(differences))
+        return 1
+    print("MATCH")
+    return 0
 
 
 if __name__ == "__main__":
