@@ -1,0 +1,36 @@
+=== 2026-11-02T19:47:08+07:00 ===
+command: C:\Users\admin\AppData\Local\Programs\Python\Python314\python.exe D:\job\aggregator\ad-data-aggregator\aggregator.py --input data/ad_data.csv --output C:\Users\admin\AppData\Local\Temp\tmpt7emvltv
+machine: Windows-10-10.0.19043-SP0 | Intel64 Family 6 Model 165 Stepping 3, GenuineIntel | 12 logical CPUs | 15.9 GB RAM | Python 3.14.10
+exit code: 0
+wall time: 37.16 s
+peak working set (main process only): 21.0 MB
+peak pagefile usage (main process only): 15.5 MB
+aggregator output:
+  Read 26843544 data rows, 50 campaigns.
+  Skipped 0 bad rows {}.
+  Wrote top10_ctr.csv and top10_cpa.csv to C:\Users\admin\AppData\Local\Temp\tmpt7emvltv
+
+=== 2026-11-02T19:47:46+07:00 ===
+command: C:\Users\admin\AppData\Local\Programs\Python\Python314\python.exe D:\job\aggregator\ad-data-aggregator\aggregator.py --input data/ad_data.csv --output C:\Users\admin\AppData\Local\Temp\tmpurh0b8x5
+machine: Windows-10-10.0.19043-SP0 | Intel64 Family 6 Model 165 Stepping 3, GenuineIntel | 12 logical CPUs | 15.9 GB RAM | Python 3.14.10
+exit code: 0
+wall time: 37.55 s
+peak working set (main process only): 21.0 MB
+peak pagefile usage (main process only): 15.6 MB
+aggregator output:
+  Read 26843544 data rows, 50 campaigns.
+  Skipped 0 bad rows {}.
+  Wrote top10_ctr.csv and top10_cpa.csv to C:\Users\admin\AppData\Local\Temp\tmpurh0b8x5
+
+=== 2026-11-02T19:48:23+07:00 ===
+command: C:\Users\admin\AppData\Local\Programs\Python\Python314\python.exe D:\job\aggregator\ad-data-aggregator\aggregator.py --input data/ad_data.csv --output C:\Users\admin\AppData\Local\Temp\tmpdz1gglc0
+machine: Windows-10-10.0.19043-SP0 | Intel64 Family 6 Model 165 Stepping 3, GenuineIntel | 12 logical CPUs | 15.9 GB RAM | Python 3.14.10
+exit code: 0
+wall time: 36.82 s
+peak working set (main process only): 21.2 MB
+peak pagefile usage (main process only): 15.7 MB
+aggregator output:
+  Read 26843544 data rows, 50 campaigns.
+  Skipped 0 bad rows {}.
+  Wrote top10_ctr.csv and top10_cpa.csv to C:\Users\admin\AppData\Local\Temp\tmpdz1gglc0
+
